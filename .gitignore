@@ -1,0 +1,16 @@
+node_modules/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+*.tgz
+
+.env
+.env.*
+!.env.example
+
+data/
+logs/
+runtime.json
+
+.DS_Store

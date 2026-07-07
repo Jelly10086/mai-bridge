@@ -1,0 +1,6 @@
+commands:
+  mai:
+    ko:
+      description: Run maibot as a Docker-hosted reply backend and bridge messages through mai.ko.
+      messages:
+        status: mai.ko hosted service status

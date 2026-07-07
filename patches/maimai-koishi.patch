@@ -1,0 +1,553 @@
+diff --git a/pytests/config_test/test_startup_bindings.py b/pytests/config_test/test_startup_bindings.py
+index d11c436..627f8c4 100644
+--- a/pytests/config_test/test_startup_bindings.py
++++ b/pytests/config_test/test_startup_bindings.py
+@@ -9,14 +9,15 @@ from src.config.startup_bindings import (
+     get_startup_webui_bind_address,
+     resolve_main_bind_address,
+     resolve_webui_bind_address,
++    resolve_webui_enabled,
+ )
+ 
+ 
+ def test_startup_bindings_use_defaults_when_config_file_missing(tmp_path: Path):
+     missing_path = tmp_path / "missing_bot_config.toml"
+ 
+-    assert get_startup_main_bind_address(missing_path) == BindAddress(host="127.0.0.1", port=8080)
+-    assert get_startup_webui_bind_address(missing_path) == BindAddress(host="127.0.0.1", port=8001)
++    assert get_startup_main_bind_address(missing_path) == BindAddress(hosts=["127.0.0.1"], port=8080)
++    assert get_startup_webui_bind_address(missing_path) == BindAddress(hosts=["127.0.0.1", "::1"], port=8001)
+ 
+ 
+ def test_startup_bindings_can_read_addresses_from_bot_config(tmp_path: Path):
+@@ -37,8 +38,8 @@ port = 18001
+         encoding="utf-8",
+     )
+ 
+-    assert get_startup_main_bind_address(config_path) == BindAddress(host="0.0.0.0", port=22345)
+-    assert get_startup_webui_bind_address(config_path) == BindAddress(host="192.168.1.9", port=18001)
++    assert get_startup_main_bind_address(config_path) == BindAddress(hosts=["0.0.0.0"], port=22345)
++    assert get_startup_webui_bind_address(config_path) == BindAddress(hosts=["192.168.1.9"], port=18001)
+ 
+ 
+ def test_resolve_bindings_prefer_initialized_global_config(monkeypatch):
+@@ -51,8 +52,47 @@ def test_resolve_bindings_prefer_initialized_global_config(monkeypatch):
+ 
+     monkeypatch.setitem(sys.modules, "src.config.config", fake_config_module)
+ 
+-    assert resolve_main_bind_address() == BindAddress(host="10.0.0.2", port=32000)
+-    assert resolve_webui_bind_address() == BindAddress(host="10.0.0.3", port=32001)
++    assert resolve_main_bind_address() == BindAddress(hosts=["10.0.0.2"], port=32000)
++    assert resolve_webui_bind_address() == BindAddress(hosts=["10.0.0.3"], port=32001)
++
++
++def test_koishi_webui_env_overrides_bind_address_and_enabled(monkeypatch, tmp_path: Path):
++    monkeypatch.setenv("MAIBOT_KOISHI_MODE", "1")
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_HOST", "0.0.0.0")
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_PORT", "19001")
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_ENABLED", "0")
++
++    config_path = tmp_path / "bot_config.toml"
++    config_path.write_text(
++        """
++[webui]
++host = "127.0.0.1"
++port = 8001
++""".strip(),
++        encoding="utf-8",
++    )
++
++    assert get_startup_webui_bind_address(config_path) == BindAddress(hosts=["0.0.0.0"], port=19001)
++    assert resolve_webui_enabled(True) is False
++
++
++def test_koishi_webui_env_is_ignored_outside_koishi_mode(monkeypatch, tmp_path: Path):
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_HOST", "0.0.0.0")
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_PORT", "19001")
++    monkeypatch.setenv("MAIBOT_KOISHI_WEBUI_ENABLED", "0")
++
++    config_path = tmp_path / "bot_config.toml"
++    config_path.write_text(
++        """
++[webui]
++host = "127.0.0.1"
++port = 8001
++""".strip(),
++        encoding="utf-8",
++    )
++
++    assert get_startup_webui_bind_address(config_path) == BindAddress(hosts=["127.0.0.1"], port=8001)
++    assert resolve_webui_enabled(True) is True
+ 
+ 
+ def test_legacy_env_bindings_are_migrated_when_fields_missing_or_default(monkeypatch):
+diff --git a/src/chat/message_receive/uni_message_sender.py b/src/chat/message_receive/uni_message_sender.py
+index 93bd2c3..66f743b 100644
+--- a/src/chat/message_receive/uni_message_sender.py
++++ b/src/chat/message_receive/uni_message_sender.py
+@@ -1,6 +1,7 @@
+ from typing import Any, Optional, Tuple
+ 
+ import asyncio
++import os
+ import traceback
+ 
+ from rich.traceback import install
+@@ -25,6 +26,18 @@ _webui_chat_broadcaster: Optional[Tuple[Any, Optional[str], Optional[str]]] = No
+ VIRTUAL_GROUP_ID_PREFIX = "webui_virtual_group_"
+ 
+ 
++def _koishi_mode_enabled() -> bool:
++    return os.getenv("MAIBOT_KOISHI_MODE") == "1"
++
++
++def _api_server_fallback_enabled(global_config: Any) -> bool:
++    """Koishi 模式依赖新版 API Server 完成消息回传。"""
++
++    if _koishi_mode_enabled():
++        return True
++    return bool(getattr(global_config.maim_message, "enable_api_server", False))
++
++
+ # TODO: 重构完成后完成webui相关
+ def get_webui_chat_broadcaster() -> Tuple[Any, Optional[str], Optional[str]]:
+     """获取 WebUI 聊天室广播器。
+@@ -149,7 +162,7 @@ async def _send_message(message: SessionMessage, show_log: bool = True) -> bool:
+                 from src.config.config import global_config
+ 
+                 # 如果未开启 API Server，直接跳过 Fallback
+-                if not global_config.maim_message.enable_api_server:
++                if not _api_server_fallback_enabled(global_config):
+                     logger.debug("[API Server Fallback] API Server未开启，跳过fallback")
+                     if legacy_exception:
+                         raise legacy_exception
+diff --git a/src/common/message_server/api.py b/src/common/message_server/api.py
+index 19f0f3e..a438312 100644
+--- a/src/common/message_server/api.py
++++ b/src/common/message_server/api.py
+@@ -1,4 +1,5 @@
+ from importlib import metadata
++import os
+ import traceback
+ 
+ from maim_message import MessageServer
+@@ -11,6 +12,39 @@ global_api = None
+ adopt_library_logger("maim_message", handler_names={"maim_message_default_handler"})
+ 
+ 
++def _koishi_mode_enabled() -> bool:
++    return os.getenv("MAIBOT_KOISHI_MODE") == "1"
++
++
++def _env_host(name: str, default: str) -> str:
++    if not _koishi_mode_enabled():
++        return default
++    value = os.getenv(name)
++    if value is None:
++        return default
++    value = value.strip()
++    return value or default
++
++
++def _env_port(name: str, default: int) -> int:
++    if not _koishi_mode_enabled():
++        return default
++    try:
++        value = int(os.getenv(name, ""))
++    except (TypeError, ValueError):
++        return default
++    return value if 0 < value <= 65535 else default
++
++
++def _api_allowed_keys(default_keys: list[str]) -> list[str]:
++    """Koishi 模式下仅接受插件注入的 API key。"""
++
++    if not _koishi_mode_enabled():
++        return default_keys
++    key = os.getenv("MAIBOT_KOISHI_API_KEY", "").strip()
++    return [key] if key else ["__missing_koishi_api_key__"]
++
++
+ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
+     """获取全局MessageServer实例"""
+     from src.config.config import global_config
+@@ -24,11 +58,13 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
+             raise RuntimeError("maim_message 版本过低，请升级到 0.6.2 或更高版本。")
+         # 读取配置项
+         maim_message_config = global_config.maim_message
++        legacy_host = _env_host("MAIBOT_KOISHI_LEGACY_HOST", maim_message_config.ws_server_host)
++        legacy_port = _env_port("MAIBOT_KOISHI_LEGACY_PORT", maim_message_config.ws_server_port)
+ 
+         # 设置基本参数 (Legacy Server Mode)
+         kwargs = {
+-            "host": maim_message_config.ws_server_host,
+-            "port": maim_message_config.ws_server_port,
++            "host": legacy_host,
++            "port": legacy_port,
+             "app": get_global_server().get_app(),
+             "custom_logger": get_logger("maim_message"),
+             "enable_custom_uvicorn_logger": False,
+@@ -46,13 +82,13 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
+         # ---------------------------------------------------------------------
+         # Additional API Server Configuration
+         # ---------------------------------------------------------------------
+-        enable_api_server = maim_message_config.enable_api_server
++        enable_api_server = maim_message_config.enable_api_server or _koishi_mode_enabled()
+ 
+         # 如果启用了API Server，则初始化额外服务器
+         if enable_api_server:
+             api_logger = get_logger("maim_message_api_server")
+-            api_server_host = maim_message_config.api_server_host
+-            api_server_port = maim_message_config.api_server_port
++            api_server_host = _env_host("MAIBOT_KOISHI_API_HOST", maim_message_config.api_server_host)
++            api_server_port = _env_port("MAIBOT_KOISHI_API_PORT", maim_message_config.api_server_port)
+             use_wss = maim_message_config.api_server_use_wss
+ 
+             assert_port_available(
+@@ -78,7 +114,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
+ 
+-                # 2. Setup Auth Handler
++                # 2. 设置认证处理器
+                 async def auth_handler(metadata: dict) -> bool:
+-                    allowed_keys = maim_message_config.api_server_allowed_api_keys
++                    allowed_keys = _api_allowed_keys(maim_message_config.api_server_allowed_api_keys)
+-                    # If list is empty/None, allow all (default behavior of returning True)
++                    # API key 列表为空时保持原有行为，允许所有连接。
+                     if not allowed_keys:
+                         return True
+diff --git a/src/common/message_server/universal_message_sender.py b/src/common/message_server/universal_message_sender.py
+index 8db3dbc..0c70f45 100644
+--- a/src/common/message_server/universal_message_sender.py
++++ b/src/common/message_server/universal_message_sender.py
+@@ -1,6 +1,7 @@
+ from typing import TYPE_CHECKING, Optional
+ 
+ import asyncio
++import os
+ 
+ from src.common.database.database import get_db_session
+ from src.common.logger import get_logger
+@@ -15,6 +16,18 @@ if TYPE_CHECKING:
+ logger = get_logger("sender")
+ 
+ 
++def _koishi_mode_enabled() -> bool:
++    return os.getenv("MAIBOT_KOISHI_MODE") == "1"
++
++
++def _api_server_fallback_enabled(global_config) -> bool:
++    """Koishi 模式依赖新版 API Server 完成消息回传。"""
++
++    if _koishi_mode_enabled():
++        return True
++    return bool(getattr(global_config.maim_message, "enable_api_server", False))
++
++
+ class UniversalMessageSender:
+     @staticmethod
+     async def send_message(
+@@ -147,7 +160,7 @@ class UniversalMessageSender:
+             from src.config.config import global_config
+ 
+             # 如果未开启 API Server，直接跳过 Fallback
+-            if not global_config.maim_message.enable_api_server:
++            if not _api_server_fallback_enabled(global_config):
+                 logger.debug("[API Server Fallback] API Server 未开启，跳过 fallback")
+                 if legacy_exception:
+                     raise legacy_exception
+diff --git a/src/config/startup_bindings.py b/src/config/startup_bindings.py
+index 126469b..a7caf7e 100644
+--- a/src/config/startup_bindings.py
++++ b/src/config/startup_bindings.py
+@@ -25,6 +25,8 @@ _DEFAULT_WEBUI_BIND_ADDRESS = BindAddress(hosts=["127.0.0.1", "::1"], port=8001)
+ _IPV4_WILDCARD_HOST = "0.0.0.0"
+ _IPV6_WILDCARD_HOST = "::"
+ _WILDCARD_HOSTS = {_IPV4_WILDCARD_HOST, _IPV6_WILDCARD_HOST}
++_TRUE_ENV_VALUES = {"1", "true", "yes", "on", "enabled"}
++_FALSE_ENV_VALUES = {"0", "false", "no", "off", "disabled"}
+ 
+ 
+ def _as_mapping(value: Any) -> Optional[Mapping[str, Any]]:
+@@ -63,6 +65,35 @@ def _parse_host_env(value: Any) -> str | None:
+     return normalized_value or None
+ 
+ 
++def _parse_bool_env(value: Any) -> bool | None:
++    if not isinstance(value, str):
++        return None
++
++    normalized_value = value.strip().lower()
++    if normalized_value in _TRUE_ENV_VALUES:
++        return True
++    if normalized_value in _FALSE_ENV_VALUES:
++        return False
++    return None
++
++
++def _koishi_mode_enabled() -> bool:
++    return os.getenv("MAIBOT_KOISHI_MODE") == "1"
++
++
++def _apply_koishi_main_bind_address(address: BindAddress) -> BindAddress:
++    """Koishi 模式下覆盖主消息服务监听地址。"""
++
++    # 不复用旧版 HOST / PORT，避免触发配置迁移。
++
++    if not _koishi_mode_enabled():
++        return address
++
++    host = _parse_host_env(os.getenv("MAIBOT_KOISHI_LEGACY_HOST"))
++    port = _normalize_port(os.getenv("MAIBOT_KOISHI_LEGACY_PORT"), address.port)
++    return BindAddress(hosts=[host] if host else address.hosts, port=port)
++
++
+ def _merge_host(hosts: list[str], host: str) -> list[str]:
+     """把额外监听地址合并到列表中，通配地址优先绑定。"""
+ 
+@@ -103,6 +134,17 @@ def _apply_webui_host_env(address: BindAddress) -> BindAddress:
+     return BindAddress(hosts=_merge_host(address.hosts, webui_host_env), port=address.port)
+ 
+ 
++def _apply_koishi_webui_bind_address(address: BindAddress) -> BindAddress:
++    """Koishi 模式下覆盖 WebUI 监听地址。"""
++
++    if not _koishi_mode_enabled():
++        return address
++
++    host = _parse_host_env(os.getenv("MAIBOT_KOISHI_WEBUI_HOST"))
++    port = _normalize_port(os.getenv("MAIBOT_KOISHI_WEBUI_PORT"), address.port)
++    return BindAddress(hosts=[host] if host else address.hosts, port=port)
++
++
+ def _finalize_webui_bind_address(address: BindAddress) -> BindAddress:
+     address_with_env = _apply_webui_host_env(address)
+     return BindAddress(
+@@ -152,12 +194,13 @@ def get_startup_main_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindAd
+ 
+     config_data = _load_bootstrap_config_dict(config_path)
+     maim_message_config = _as_mapping(config_data.get("maim_message")) or {}
+-    return _resolve_bind_address_from_section(
++    address = _resolve_bind_address_from_section(
+         maim_message_config,
+         host_key="ws_server_host",
+         port_key="ws_server_port",
+         default_address=_DEFAULT_MAIN_BIND_ADDRESS,
+     )
++    return _apply_koishi_main_bind_address(address)
+ 
+ 
+ def get_startup_webui_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindAddress:
+@@ -171,7 +214,7 @@ def get_startup_webui_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindA
+         port_key="port",
+         default_address=_DEFAULT_WEBUI_BIND_ADDRESS,
+     )
+-    return _finalize_webui_bind_address(address)
++    return _finalize_webui_bind_address(_apply_koishi_webui_bind_address(address))
+ 
+ 
+ def resolve_main_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindAddress:
+@@ -179,10 +222,11 @@ def resolve_main_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindAddres
+ 
+     global_config = _get_loaded_global_config()
+     if global_config is not None:
+-        return BindAddress(
++        address = BindAddress(
+             hosts=_normalize_hosts(global_config.maim_message.ws_server_host, _DEFAULT_MAIN_BIND_ADDRESS.hosts),
+             port=global_config.maim_message.ws_server_port,
+         )
++        return _apply_koishi_main_bind_address(address)
+     return get_startup_main_bind_address(config_path)
+ 
+ 
+@@ -195,5 +239,17 @@ def resolve_webui_bind_address(config_path: Path = BOT_CONFIG_PATH) -> BindAddre
+             hosts=_normalize_hosts(global_config.webui.host, _DEFAULT_WEBUI_BIND_ADDRESS.hosts),
+             port=global_config.webui.port,
+         )
+-        return _finalize_webui_bind_address(address)
++        return _finalize_webui_bind_address(_apply_koishi_webui_bind_address(address))
+     return get_startup_webui_bind_address(config_path)
++
++
++def resolve_webui_enabled(default_enabled: bool) -> bool:
++    """Koishi 模式下覆盖 WebUI 开关。"""
++
++    if not _koishi_mode_enabled():
++        return default_enabled
++
++    env_enabled = _parse_bool_env(os.getenv("MAIBOT_KOISHI_WEBUI_ENABLED"))
++    if env_enabled is None:
++        return default_enabled
++    return env_enabled
+diff --git a/src/main.py b/src/main.py
+index 25008dc..9d01498 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -85,8 +85,9 @@ class MainSystem:
+     def _start_webui_server(self) -> None:
+         """启动独立线程中的 WebUI 服务器。"""
+         from src.config.config import global_config
++        from src.config.startup_bindings import resolve_webui_enabled
+ 
+-        if not global_config.webui.enabled:
++        if not resolve_webui_enabled(global_config.webui.enabled):
+             logger.info(t("startup.webui_disabled"))
+             return
+ 
+diff --git a/pytests/utils_test/message_utils_test.py b/pytests/utils_test/message_utils_test.py
+index 4c5287a..8942fc1 100644
+--- a/pytests/utils_test/message_utils_test.py
++++ b/pytests/utils_test/message_utils_test.py
+@@ -365,3 +365,34 @@ async def test_build_readable_message_with_at(monkeypatch):
+     # 验证主消息和@组件中的用户信息都被处理
+     assert "XXXXXX说：" in text  # 主消息用户被匿名化
+     assert "XXXXXX说：@XXXXXX" in text  # @组件用户被匿名化
++
++
++def test_parse_reply_segment_keeps_context(monkeypatch):
++    """回复片段需要保留原消息内容和发送者。"""
++    load_message_via_file(monkeypatch)
++    utils_module = load_utils_via_file(monkeypatch)
++    MessageUtils = utils_module.MessageUtils
++    message = type(
++        "Message",
++        (),
++        {
++            "message_segment": utils_module.Seg(
++                type="reply",
++                data={
++                    "target_message_id": "bot-msg-1",
++                    "target_message_content": "这个是什么",
++                    "target_message_sender_id": "bot-self",
++                    "target_message_sender_nickname": "mai.ko",
++                },
++            )
++        },
++    )()
++
++    sequence = MessageUtils.from_maim_message_segments_to_MaiSeq(message)
++    component = sequence.components[0]
++
++    assert isinstance(component, ReplyComponent)
++    assert component.target_message_id == "bot-msg-1"
++    assert component.target_message_content == "这个是什么"
++    assert component.target_message_sender_id == "bot-self"
++    assert component.target_message_sender_nickname == "mai.ko"
+diff --git a/src/common/data_models/message_component_data_model.py b/src/common/data_models/message_component_data_model.py
+index 1b8ed49..b2ade22 100644
+--- a/src/common/data_models/message_component_data_model.py
++++ b/src/common/data_models/message_component_data_model.py
+@@ -470,7 +470,7 @@ class MessageSequence:
+                 },
+             }
+         elif isinstance(item, ReplyComponent):
+-            return {"type": "reply", "data": item.target_message_id}
++            return {"type": "reply", "data": self._reply_component_to_data(item)}
+         elif isinstance(item, ForwardNodeComponent):
+             return {
+                 "type": "forward",
+@@ -523,7 +523,7 @@ class MessageSequence:
+                 target_user_cardname=item["data"].get("target_user_cardname"),
+             )
+         elif item_type == "reply":
+-            return ReplyComponent(target_message_id=item["data"])
++            return cls._reply_component_from_data(item.get("data"))
+         elif item_type == "dict":
+             raw_data = item.get("data") or {}
+             if isinstance(raw_data, dict) and str(raw_data.get("type") or "").strip().lower() == "file":
+@@ -547,3 +547,49 @@ class MessageSequence:
+         else:
+             logger.warning(f"Unofficial component type in dict: {item_type}, defaulting to DictComponent")
+             return DictComponent(data=item.get("data") or {})
++
++    @staticmethod
++    def _reply_component_to_data(item: ReplyComponent) -> Union[str, Dict[str, Any]]:
++        """将回复组件转换为兼容旧格式的片段数据。"""
++
++        if not any(
++            [
++                item.target_message_content,
++                item.target_message_sender_id,
++                item.target_message_sender_nickname,
++                item.target_message_sender_cardname,
++            ]
++        ):
++            return item.target_message_id
++
++        return {
++            "target_message_id": item.target_message_id,
++            "target_message_content": item.target_message_content,
++            "target_message_sender_id": item.target_message_sender_id,
++            "target_message_sender_nickname": item.target_message_sender_nickname,
++            "target_message_sender_cardname": item.target_message_sender_cardname,
++        }
++
++    @staticmethod
++    def _reply_component_from_data(data: Any) -> ReplyComponent:
++        """从片段数据还原回复组件，兼容旧字符串格式。"""
++
++        if not isinstance(data, dict):
++            return ReplyComponent(target_message_id=str(data or ""))
++
++        return ReplyComponent(
++            target_message_id=str(data.get("target_message_id") or data.get("message_id") or data.get("id") or ""),
++            target_message_content=MessageSequence._optional_string(data.get("target_message_content")),
++            target_message_sender_id=MessageSequence._optional_string(data.get("target_message_sender_id")),
++            target_message_sender_nickname=MessageSequence._optional_string(data.get("target_message_sender_nickname")),
++            target_message_sender_cardname=MessageSequence._optional_string(data.get("target_message_sender_cardname")),
++        )
++
++    @staticmethod
++    def _optional_string(value: Any) -> Optional[str]:
++        """返回非空字符串，空值返回 None。"""
++
++        if value is None:
++            return None
++        text = str(value).strip()
++        return text or None
+diff --git a/src/common/utils/utils_message.py b/src/common/utils/utils_message.py
+index 23af394..41860ae 100644
+--- a/src/common/utils/utils_message.py
++++ b/src/common/utils/utils_message.py
+@@ -116,7 +116,9 @@ class MessageUtils:
+         elif seg.type == "at":
+             return MessageUtils._parse_at_segment_data(seg.data)
+         elif seg.type == "reply":
+-            assert isinstance(seg.data, str), "reply类型的seg数据应该是字符串"
++            if isinstance(seg.data, dict):
++                return MessageUtils._parse_reply_segment_data(seg.data)
++            assert isinstance(seg.data, str), "reply类型的seg数据应该是字符串或字典"
+             return ReplyComponent(target_message_id=seg.data)
+         elif seg.type == "dict":
+             assert isinstance(seg.data, dict), "dict类型的seg数据应该是字典"
+@@ -157,6 +159,31 @@ class MessageUtils:
+         assert isinstance(data, str), "at类型的seg数据应该是字符串或字典"
+         return AtComponent(target_user_id=data)
+ 
++    @staticmethod
++    def _parse_reply_segment_data(data: dict[str, Any]) -> ReplyComponent:
++        """从回复字典片段还原回复组件。"""
++
++        target_message_id = MessageUtils._first_non_empty_string(
++            data.get("target_message_id"),
++            data.get("message_id"),
++            data.get("id"),
++        )
++        assert target_message_id, "reply类型的seg字典数据必须包含target_message_id"
++        return ReplyComponent(
++            target_message_id=target_message_id,
++            target_message_content=MessageUtils._optional_string(data.get("target_message_content")),
++            target_message_sender_id=MessageUtils._optional_string(data.get("target_message_sender_id")),
++            target_message_sender_nickname=MessageUtils._optional_string(data.get("target_message_sender_nickname")),
++            target_message_sender_cardname=MessageUtils._optional_string(data.get("target_message_sender_cardname")),
++        )
++
++    @staticmethod
++    def _optional_string(value: Any) -> str | None:
++        """返回非空字符串，空值返回 None。"""
++
++        text = MessageUtils._first_non_empty_string(value)
++        return text or None
++
+     @staticmethod
+     def _first_non_empty_string(*values: Any) -> str:
+         """返回第一个非空字符串表示。"""

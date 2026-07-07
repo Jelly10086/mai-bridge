@@ -1,0 +1,6 @@
+commands:
+  mai:
+    ko:
+      description: 将 maibot 作为 docker 托管的消息回复后端运行，使用 mai.ko 桥接消息收发。
+      messages:
+        status: mai.ko 托管状态
