@@ -2,6 +2,18 @@
   "name": "koishi-plugin-mai-bridge",
   "version": "0.1.0",
   "description": "将 maibot 作为 docker 托管的消息回复后端运行，使用 mai.ko 桥接消息收发。",
+  "author": "Jelly10086 <wow40469600@gmail.com>",
+  "contributors": [
+    "Jelly10086 <wow40469600@gmail.com>"
+  ],
+  "homepage": "https://github.com/Jelly10086/mai-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jelly10086/mai-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jelly10086/mai-bridge/issues"
+  },
   "type": "commonjs",
   "main": "out/index.js",
   "typings": "out/index.d.ts",
