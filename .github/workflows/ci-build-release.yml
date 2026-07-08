@@ -1,0 +1,120 @@
+name: CI Build Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: mai-bridge-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-release:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')) }}
+    runs-on: ubuntu-latest
+
+    env:
+      MAIKO_SKIP_POSTINSTALL: '1'
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Test
+        run: npm test -- --reporter dot
+
+      - name: Build
+        run: npm run build
+
+      - name: Bump patch version
+        id: version
+        run: |
+          npm version patch --no-git-tag-version
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Check npm version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if npm view "koishi-plugin-mai-bridge@${VERSION}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "npm version already exists: ${VERSION}"
+            exit 1
+          fi
+
+      - name: Check git tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "local tag already exists: ${TAG}"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "remote tag already exists: ${TAG}"
+            exit 1
+          fi
+
+      - name: Pack
+        id: pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm pack
+          PACKAGE_FILE="koishi-plugin-mai-bridge-${VERSION}.tgz"
+          test -f "${PACKAGE_FILE}"
+          echo "file=${PACKAGE_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create version commit and tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git add package.json
+          git commit -m "Add:发布 ${TAG} [skip ci]"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push --dry-run origin HEAD:main
+          git push --dry-run origin "${TAG}"
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+      - name: Push version commit and tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git push origin HEAD:main
+          git push origin "${TAG}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PACKAGE_FILE: ${{ steps.pack.outputs.file }}
+        run: gh release create "${TAG}" "${PACKAGE_FILE}" --title "${TAG}" --notes "Automated release for ${TAG}."
