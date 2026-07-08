@@ -7,6 +7,7 @@ const PLATFORM = 'koishi'
 export interface SessionToMaimOptions {
   resolveImage?: (source: string) => Awaitable<string | undefined>
   replyContext?: ReplyContext
+  forceMention?: boolean
 }
 
 export interface ReplyContext {
@@ -204,6 +205,8 @@ export async function sessionToMaimMessage(
   const messageId = String(session.messageId || session.id || `koishi-${Date.now()}`)
   const senderInfo = buildSenderInfo(session)
   const atBot = isAtBot(session)
+  const forceMention = !!options.forceMention
+  const mentioned = atBot || forceMention
   const replyContext = options.replyContext
   return {
     message_info: {
@@ -225,8 +228,9 @@ export async function sessionToMaimMessage(
         koishi_reply_to_message_id: replyContext?.targetMessageId,
         koishi_reply_context_count: replyContext?.contextCount,
         koishi_is_direct: !!session.isDirect,
-        at_bot: atBot,
-        is_mentioned: atBot,
+        koishi_group_trigger_forced: forceMention,
+        at_bot: mentioned,
+        is_mentioned: mentioned,
       },
       format_info: {
         content_format: ['text', 'image'],

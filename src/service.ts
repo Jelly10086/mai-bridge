@@ -254,19 +254,17 @@ export class MaibotService extends Service {
         return next()
       }
 
-      const replyContext = this.history.resolveReplyContext(session, route)
-      const message = await sessionToMaimMessage(session, route, this.apiKey, {
-        resolveImage: (source) => this.resolveImageToBase64(source),
-        replyContext,
-      })
-      this.transport.sendMessage(message)
-      this.history.rememberSession(session, route)
-      this.bridge.maimSent += 1
-      this.bridge.lastMaimSendAt = Date.now()
-      this.bridge.lastRouteId = route.routeId
-      this.bridge.lastMessageId = message.message_info.message_id
-      const replyLog = replyContext ? ` reply=${replyContext.targetMessageId} context=${replyContext.contextCount || 0}` : ''
-      this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog} ${describeSegment(message.message_segment)}`)
+      const entries = trigger.entries.length ? trigger.entries : [{ session, route }]
+      if (trigger.forceMention) {
+        this.logMessageSummary(`group trigger reached: route=${route.routeId} count=${trigger.count}/${trigger.threshold} flushing=${entries.length}`)
+      }
+
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index]
+        const forceMention = !!trigger.forceMention && index === entries.length - 1
+        await this.forwardSessionToMaim(entry.session, entry.route, forceMention)
+      }
+
       if (this.pluginConfig.messageMode === 'exclusive') return ''
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -276,6 +274,24 @@ export class MaibotService extends Service {
     }
 
     return next()
+  }
+
+  private async forwardSessionToMaim(session: Session, route: ReturnType<RouteRegistry['remember']>, forceMention = false) {
+    const replyContext = this.history.resolveReplyContext(session, route)
+    const message = await sessionToMaimMessage(session, route, this.apiKey, {
+      resolveImage: (source) => this.resolveImageToBase64(source),
+      replyContext,
+      forceMention,
+    })
+    this.transport.sendMessage(message)
+    this.history.rememberSession(session, route)
+    this.bridge.maimSent += 1
+    this.bridge.lastMaimSendAt = Date.now()
+    this.bridge.lastRouteId = route.routeId
+    this.bridge.lastMessageId = message.message_info.message_id
+    const replyLog = replyContext ? ` reply=${replyContext.targetMessageId} context=${replyContext.contextCount || 0}` : ''
+    const forceLog = forceMention ? ' forced=group-trigger' : ''
+    this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog}${forceLog} ${describeSegment(message.message_segment)}`)
   }
 
   async dispose() {

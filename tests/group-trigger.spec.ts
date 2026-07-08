@@ -30,39 +30,57 @@ function route(overrides: Record<string, any> = {}) {
 }
 
 describe('mai.ko group message trigger', () => {
-  it('forwards only when a group reaches the configured message count', () => {
+  it('flushes cached group messages when a group reaches the configured message count', () => {
     const trigger = new GroupMessageTrigger(3)
-    const groupSession = session()
+    const firstSession = session({ messageId: 'msg-1' })
+    const secondSession = session({ messageId: 'msg-2' })
+    const thirdSession = session({ messageId: 'msg-3' })
     const groupRoute = route()
 
-    assert.deepEqual(trigger.test(groupSession, groupRoute), {
+    assert.deepEqual(trigger.test(firstSession, groupRoute), {
       shouldForward: false,
       count: 1,
       threshold: 3,
       key: 'onebot:3876469841:248727194:248727194',
+      entries: [],
     })
-    assert.equal(trigger.test(groupSession, groupRoute).shouldForward, false)
-    assert.deepEqual(trigger.test(groupSession, groupRoute), {
-      shouldForward: true,
-      count: 3,
+    assert.equal(trigger.test(secondSession, groupRoute).shouldForward, false)
+    const result = trigger.test(thirdSession, groupRoute)
+
+    assert.equal(result.shouldForward, true)
+    assert.equal(result.count, 3)
+    assert.equal(result.threshold, 3)
+    assert.equal(result.key, 'onebot:3876469841:248727194:248727194')
+    assert.equal(result.forceMention, true)
+    assert.deepEqual([
+      result.entries[0].session.messageId,
+      result.entries[1].session.messageId,
+      result.entries[2].session.messageId,
+    ], ['msg-1', 'msg-2', 'msg-3'])
+    assert.deepEqual(trigger.test(session({ messageId: 'msg-4' }), groupRoute), {
+      shouldForward: false,
+      count: 1,
       threshold: 3,
       key: 'onebot:3876469841:248727194:248727194',
+      entries: [],
     })
-    assert.equal(trigger.test(groupSession, groupRoute).count, 1)
   })
 
   it('does not gate direct messages', () => {
     const trigger = new GroupMessageTrigger(3)
-    const result = trigger.test(session({ isDirect: true, channelId: '' }), route({
+    const directSession = session({ isDirect: true, channelId: '' })
+    const directRoute = route({
       isDirect: true,
       channelId: '',
       guildId: '',
-    }))
+    })
+    const result = trigger.test(directSession, directRoute)
 
     assert.deepEqual(result, {
       shouldForward: true,
       count: 1,
       threshold: 3,
+      entries: [{ session: directSession, route: directRoute }],
     })
   })
 

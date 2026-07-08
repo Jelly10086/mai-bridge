@@ -6,32 +6,40 @@ export interface GroupTriggerResult {
   count: number
   threshold: number
   key?: string
+  entries: GroupTriggerEntry[]
+  forceMention?: boolean
+}
+
+export interface GroupTriggerEntry {
+  session: Session
+  route: KoishiRoute
 }
 
 export class GroupMessageTrigger {
-  private counters = new Map<string, number>()
+  private pending = new Map<string, GroupTriggerEntry[]>()
 
   constructor(private threshold: number) {}
 
   test(session: Session, route: KoishiRoute): GroupTriggerResult {
     const threshold = Math.max(1, Math.floor(this.threshold || 1))
+    const entry = { session, route }
     if (threshold <= 1 || session.isDirect || !route.channelId) {
-      return { shouldForward: true, count: 1, threshold }
+      return { shouldForward: true, count: 1, threshold, entries: [entry] }
     }
 
     const key = this.createKey(route)
-    const count = (this.counters.get(key) || 0) + 1
-    if (count >= threshold) {
-      this.counters.delete(key)
-      return { shouldForward: true, count, threshold, key }
+    const entries = [...this.pending.get(key) || [], entry]
+    if (entries.length >= threshold) {
+      this.pending.delete(key)
+      return { shouldForward: true, count: entries.length, threshold, key, entries, forceMention: true }
     }
 
-    this.counters.set(key, count)
-    return { shouldForward: false, count, threshold, key }
+    this.pending.set(key, entries)
+    return { shouldForward: false, count: entries.length, threshold, key, entries: [] }
   }
 
   clear() {
-    this.counters.clear()
+    this.pending.clear()
   }
 
   private createKey(route: KoishiRoute) {

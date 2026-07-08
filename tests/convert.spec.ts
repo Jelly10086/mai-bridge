@@ -109,6 +109,46 @@ describe('mai.ko convert', () => {
     assert.equal(message.message_info.sender_info?.user_info?.user_nickname, '10001')
   })
 
+  it('marks a group-triggered message as mentioned without changing its text', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: 'msg-force',
+      timestamp: 1000,
+      content: '第六条',
+      elements: h.parse('第六条'),
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      guildId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key', {
+      forceMention: true,
+    })
+
+    assert.equal(message.message_info.additional_config.at_bot, true)
+    assert.equal(message.message_info.additional_config.is_mentioned, true)
+    assert.equal(message.message_info.additional_config.koishi_group_trigger_forced, true)
+    assert.deepEqual(message.message_segment, {
+      type: 'text',
+      data: '第六条',
+    })
+  })
+
   it('downloads inbound image urls as base64 image segments', async () => {
     const session = {
       platform: 'onebot',

@@ -68,7 +68,7 @@ groupMessageTriggerCount: 1
 - `apiKey` 可以留空。插件会生成并复用运行期密钥。
 - `dockerNetwork` 按你的 Koishi Docker 网络填写。Koishi 需要能通过 `apiHost` 访问 `maimai-ko`。
 - `webuiPublicUrl` 可填写反代或宿主机映射后的 WebUI 地址，用于 Koishi 控制台显示入口。
-- `groupMessageTriggerCount` 控制群聊累计多少条消息后才转发给 maibot。设为 `3` 时，同一群前两条只记录上下文，第 3 条才拉起思考；私聊不受影响。
+- `groupMessageTriggerCount` 控制群聊累计多少条消息后批量转发并强制触发 maibot 思考。设为 `3` 时，同一群前两条先缓存，第 3 条会连同前两条一起转发；私聊不受影响。
 
 ## 消息模式
 
