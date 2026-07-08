@@ -17,6 +17,7 @@ export function renderStatus(status: RuntimeStatus) {
     `重连次数: ${status.transport.reconnectAttempts}`,
     `中转: Koishi收=${status.bridge.koishiReceived} / 发往mai.ko=${status.bridge.maimSent} / 收到mai.ko=${status.bridge.maimReceived} / 回发Koishi=${status.bridge.koishiSent}`,
     `中转异常: 路由失败=${status.bridge.routeMissed} / 发送失败=${status.bridge.sendFailed}`,
+    `触发限制: 群聊跳过=${status.bridge.groupTriggerSkipped} / 私信跳过=${status.bridge.directTriggerSkipped}`,
     `启动时间: ${formatTime(status.process.startedAt)}`,
   ]
   if (status.process.blockedReason) lines.push(`阻塞原因: ${status.process.blockedReason}`)

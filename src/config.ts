@@ -25,6 +25,7 @@ export interface Config {
   messageMode: MessageMode
   commandPrefix: string
   groupMessageTriggerCount: number
+  directMessageTriggerCount: number
   imageDownloadEnabled: boolean
   imageDownloadTimeout: number
   imageDownloadMaxBytes: number
@@ -93,7 +94,8 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('command').description('命令：仅命中指令前缀时转发。'),
     ]).default('coexist').description('消息转发模式。'),
     commandPrefix: Schema.string().default('mai.ko').description('command 模式下触发 mai.ko 的文本前缀。'),
-    groupMessageTriggerCount: Schema.number().min(1).default(1).description('同一群聊累计达到多少条消息后批量转发并强制触发 mai.ko 思考；1 表示每条群消息都转发。私聊不受影响。'),
+    groupMessageTriggerCount: Schema.number().min(1).default(1).description('同一群聊累计达到多少条消息后批量转发并强制触发 mai.ko 思考；1 表示每条群消息都转发。'),
+    directMessageTriggerCount: Schema.number().min(1).default(1).description('同一私聊累计达到多少条消息后批量转发并强制触发 mai.ko 思考；1 表示每条私信都转发。'),
     imageDownloadEnabled: Schema.boolean().default(true).description('转发图片消息前由 Koishi 下载图片并转为 mai.ko 可识别的 base64 图片段。'),
     imageDownloadTimeout: Schema.number().min(1000).default(10000).description('下载单张入站图片的超时时间，单位毫秒。'),
     imageDownloadMaxBytes: Schema.number().min(1024).default(10 * 1024 * 1024).description('允许转发给 mai.ko 的单张图片最大字节数。'),

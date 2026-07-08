@@ -149,6 +149,83 @@ describe('mai.ko convert', () => {
     })
   })
 
+  it('marks forced direct messages as mentioned without changing their text', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: 'private:10001',
+      messageId: 'msg-direct',
+      timestamp: 1000,
+      content: '你好',
+      elements: h.parse('你好'),
+      author: {},
+      event: {},
+      isDirect: true,
+    }
+    const route = {
+      routeId: 'route-direct',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: 'private:10001',
+      userId: '10001',
+      isDirect: true,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key', {
+      forceMention: true,
+    })
+
+    assert.equal(message.message_info.additional_config.at_bot, true)
+    assert.equal(message.message_info.additional_config.is_mentioned, true)
+    assert.equal(message.message_info.additional_config.koishi_is_direct, true)
+    assert.equal(message.message_info.additional_config.koishi_group_trigger_forced, false)
+    assert.equal(message.message_info.additional_config.koishi_direct_trigger_forced, true)
+    assert.deepEqual(message.message_segment, {
+      type: 'text',
+      data: '你好',
+    })
+  })
+
+  it('keeps unforced direct messages as context-only messages', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: 'private:10001',
+      messageId: 'msg-direct-context',
+      timestamp: 1000,
+      content: '前文',
+      elements: h.parse('前文'),
+      author: {},
+      event: {},
+      isDirect: true,
+    }
+    const route = {
+      routeId: 'route-direct',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: 'private:10001',
+      userId: '10001',
+      isDirect: true,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key')
+
+    assert.equal(message.message_info.additional_config.at_bot, false)
+    assert.equal(message.message_info.additional_config.is_mentioned, false)
+    assert.equal(message.message_info.additional_config.koishi_is_direct, true)
+    assert.equal(message.message_info.additional_config.koishi_direct_trigger_forced, false)
+    assert.deepEqual(message.message_segment, {
+      type: 'text',
+      data: '前文',
+    })
+  })
+
   it('downloads inbound image urls as base64 image segments', async () => {
     const session = {
       platform: 'onebot',

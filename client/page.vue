@@ -10,6 +10,7 @@
       <p>Bridge：{{ status?.transport.state || 'unknown' }}</p>
       <p v-if="status?.bridge">中转：Koishi 收 {{ status.bridge.koishiReceived }} / 发往 mai.ko {{ status.bridge.maimSent }} / 收到 mai.ko {{ status.bridge.maimReceived }} / 回发 Koishi {{ status.bridge.koishiSent }}</p>
       <p v-if="status?.bridge">中转异常：路由失败 {{ status.bridge.routeMissed }} / 发送失败 {{ status.bridge.sendFailed }}</p>
+      <p v-if="status?.bridge">触发限制：群聊跳过 {{ status.bridge.groupTriggerSkipped }} / 私信跳过 {{ status.bridge.directTriggerSkipped }}</p>
       <p>WebUI：{{ webuiText }}</p>
       <p v-if="status?.webui.token?.value">WebUI Token：<code>{{ status.webui.token.value }}</code></p>
       <p v-else-if="status?.webui.token?.lastError">WebUI Token：{{ status.webui.token.lastError }}</p>
@@ -76,6 +77,8 @@ interface RuntimeStatus {
     koishiSent: number
     routeMissed: number
     sendFailed: number
+    groupTriggerSkipped: number
+    directTriggerSkipped: number
     lastError?: string
   }
   webui: {

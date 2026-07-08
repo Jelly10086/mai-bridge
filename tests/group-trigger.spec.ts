@@ -1,6 +1,6 @@
 import { strict as assert } from 'assert'
 
-const { GroupMessageTrigger } = require('../src/bridge/group-trigger') as any
+const { DirectMessageTrigger, GroupMessageTrigger } = require('../src/bridge/group-trigger') as any
 
 function session(overrides: Record<string, any> = {}) {
   return {
@@ -82,6 +82,52 @@ describe('mai.ko group message trigger', () => {
       threshold: 3,
       entries: [{ session: directSession, route: directRoute }],
     })
+  })
+
+  it('flushes cached direct messages when a private chat reaches the configured message count', () => {
+    const trigger = new DirectMessageTrigger(3)
+    const firstSession = session({ isDirect: true, channelId: 'private:10001', guildId: '', messageId: 'dm-1' })
+    const secondSession = session({ isDirect: true, channelId: 'private:10001', guildId: '', messageId: 'dm-2' })
+    const thirdSession = session({ isDirect: true, channelId: 'private:10001', guildId: '', messageId: 'dm-3' })
+    const directRoute = route({
+      isDirect: true,
+      channelId: 'private:10001',
+      guildId: '',
+      userId: '10001',
+    })
+
+    assert.equal(trigger.test(firstSession, directRoute).shouldForward, false)
+    assert.equal(trigger.test(secondSession, directRoute).shouldForward, false)
+    const result = trigger.test(thirdSession, directRoute)
+
+    assert.equal(result.shouldForward, true)
+    assert.equal(result.count, 3)
+    assert.equal(result.threshold, 3)
+    assert.equal(result.key, 'onebot:3876469841:10001')
+    assert.equal(result.forceMention, true)
+    assert.deepEqual([
+      result.entries[0].session.messageId,
+      result.entries[1].session.messageId,
+      result.entries[2].session.messageId,
+    ], ['dm-1', 'dm-2', 'dm-3'])
+  })
+
+  it('forwards direct messages immediately when direct trigger count is one', () => {
+    const trigger = new DirectMessageTrigger(1)
+    const directSession = session({ isDirect: true, channelId: 'private:10001', guildId: '', messageId: 'dm-1' })
+    const directRoute = route({
+      isDirect: true,
+      channelId: 'private:10001',
+      guildId: '',
+      userId: '10001',
+    })
+    const result = trigger.test(directSession, directRoute)
+
+    assert.equal(result.shouldForward, true)
+    assert.equal(result.count, 1)
+    assert.equal(result.threshold, 1)
+    assert.equal(result.forceMention, true)
+    assert.deepEqual(result.entries, [{ session: directSession, route: directRoute }])
   })
 
   it('keeps counters isolated between groups', () => {

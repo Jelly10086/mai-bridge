@@ -3,7 +3,7 @@ import type { Config } from './config'
 import { getFallbackRouteHints, getRouteIdFromMaim, maimMessageToFragment, sessionToMaimMessage, shouldForwardSession } from './bridge/convert'
 import { MaibotDockerManager } from './bridge/docker'
 import { ExternalLogForwarder } from './bridge/external-logs'
-import { GroupMessageTrigger } from './bridge/group-trigger'
+import { DirectMessageTrigger, GroupMessageTrigger } from './bridge/group-trigger'
 import { MessageHistory } from './bridge/history'
 import { MaibotPrepareManager } from './bridge/prepare'
 import { MaibotProcessManager, createApiKey } from './bridge/process'
@@ -21,6 +21,7 @@ export class MaibotService extends Service {
   private process: MaibotProcessManager
   private externalLogs: ExternalLogForwarder
   private groupTrigger: GroupMessageTrigger
+  private directTrigger: DirectMessageTrigger
   private history: MessageHistory
   private routes: RouteRegistry
   private transport: MaimTransport
@@ -44,6 +45,7 @@ export class MaibotService extends Service {
     routeMissed: 0,
     sendFailed: 0,
     groupTriggerSkipped: 0,
+    directTriggerSkipped: 0,
   }
 
   constructor(public ctx: Context, private pluginConfig: Config) {
@@ -54,6 +56,7 @@ export class MaibotService extends Service {
     this.process = new MaibotProcessManager(ctx, pluginConfig, this.apiKey)
     this.externalLogs = new ExternalLogForwarder(ctx, pluginConfig, [this.apiKey, pluginConfig.apiKey])
     this.groupTrigger = new GroupMessageTrigger(pluginConfig.groupMessageTriggerCount)
+    this.directTrigger = new DirectMessageTrigger(pluginConfig.directMessageTriggerCount)
     this.history = new MessageHistory(pluginConfig.routeTtl)
     this.routes = new RouteRegistry(pluginConfig.routeTtl)
     this.transport = new MaimTransport(ctx, pluginConfig, this.apiKey, {
@@ -232,14 +235,23 @@ export class MaibotService extends Service {
 
     try {
       const route = this.routes.remember(session)
-      const trigger = this.groupTrigger.test(session, route)
+      const triggerKind = session.isDirect ? 'direct' : 'group'
+      const trigger = session.isDirect
+        ? this.directTrigger.test(session, route)
+        : this.groupTrigger.test(session, route)
       if (!trigger.shouldForward) {
         this.history.rememberSession(session, route)
-        this.bridge.groupTriggerSkipped += 1
-        this.bridge.lastGroupTriggerCount = trigger.count
-        this.bridge.lastGroupTriggerThreshold = trigger.threshold
+        if (triggerKind === 'direct') {
+          this.bridge.directTriggerSkipped += 1
+          this.bridge.lastDirectTriggerCount = trigger.count
+          this.bridge.lastDirectTriggerThreshold = trigger.threshold
+        } else {
+          this.bridge.groupTriggerSkipped += 1
+          this.bridge.lastGroupTriggerCount = trigger.count
+          this.bridge.lastGroupTriggerThreshold = trigger.threshold
+        }
         this.bridge.lastRouteId = route.routeId
-        this.logMessageDetail(`koishi -> maimai gated: route=${route.routeId} count=${trigger.count}/${trigger.threshold} ${describeSession(session)}`)
+        this.logMessageDetail(`koishi -> maimai gated: kind=${triggerKind} route=${route.routeId} count=${trigger.count}/${trigger.threshold} ${describeSession(session)}`)
         if (this.pluginConfig.messageMode === 'exclusive') return ''
         return next()
       }
@@ -256,7 +268,7 @@ export class MaibotService extends Service {
 
       const entries = trigger.entries.length ? trigger.entries : [{ session, route }]
       if (trigger.forceMention) {
-        this.logMessageSummary(`group trigger reached: route=${route.routeId} count=${trigger.count}/${trigger.threshold} flushing=${entries.length}`)
+        this.logMessageSummary(`${triggerKind} trigger reached: route=${route.routeId} count=${trigger.count}/${trigger.threshold} flushing=${entries.length}`)
       }
 
       for (let index = 0; index < entries.length; index++) {
@@ -290,7 +302,7 @@ export class MaibotService extends Service {
     this.bridge.lastRouteId = route.routeId
     this.bridge.lastMessageId = message.message_info.message_id
     const replyLog = replyContext ? ` reply=${replyContext.targetMessageId} context=${replyContext.contextCount || 0}` : ''
-    const forceLog = forceMention ? ' forced=group-trigger' : ''
+    const forceLog = forceMention ? ' forced=message-trigger' : ''
     this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog}${forceLog} ${describeSegment(message.message_segment)}`)
   }
 
@@ -298,6 +310,7 @@ export class MaibotService extends Service {
     await this.shutdown()
     this.routes.clear()
     this.groupTrigger.clear()
+    this.directTrigger.clear()
     this.history.clear()
   }
 

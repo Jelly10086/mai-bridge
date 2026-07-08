@@ -54,6 +54,7 @@ export interface RuntimeStatus {
     routeMissed: number
     sendFailed: number
     groupTriggerSkipped: number
+    directTriggerSkipped: number
     lastKoishiMessageAt?: number
     lastMaimSendAt?: number
     lastMaimMessageAt?: number
@@ -62,6 +63,8 @@ export interface RuntimeStatus {
     lastMessageId?: string
     lastGroupTriggerCount?: number
     lastGroupTriggerThreshold?: number
+    lastDirectTriggerCount?: number
+    lastDirectTriggerThreshold?: number
     lastError?: string
   }
   webui: {
