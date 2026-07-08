@@ -551,3 +551,48 @@ index 23af394..41860ae 100644
      @staticmethod
      def _first_non_empty_string(*values: Any) -> str:
          """返回第一个非空字符串表示。"""
+diff --git a/src/services/send_service.py b/src/services/send_service.py
+index 6e8aea1..f63933a 100644
+--- a/src/services/send_service.py
++++ b/src/services/send_service.py
+@@ -288,6 +288,31 @@ def _inherit_platform_io_route_metadata(target_stream: BotChatSession) -> Dict[s
+     return inherited_metadata
+ 
+ 
++def _get_target_stream_bot_account(target_stream: BotChatSession) -> str:
++    """获取目标会话对应的机器人账号。"""
++
++    bot_account = get_bot_account(target_stream.platform)
++    if bot_account:
++        return bot_account
++
++    context_message = target_stream.context.message if target_stream.context else None
++    if context_message is None:
++        return ""
++
++    additional_config = context_message.message_info.additional_config
++    if not isinstance(additional_config, dict):
++        return ""
++
++    for key in (*RouteKeyFactory.ACCOUNT_ID_KEYS, "koishi_self_id"):
++        value = additional_config.get(key)
++        if value is None:
++            continue
++        normalized_value = str(value).strip()
++        if normalized_value:
++            return normalized_value
++    return ""
++
++
+ def _build_binary_component_from_base64(component_type: str, raw_data: str) -> StandardMessageComponents:
+     """根据 Base64 数据构造二进制消息组件。
+ 
+@@ -538,7 +563,7 @@ def _build_outbound_session_message(
+         logger.error(f"[SendService] 未找到聊天流: {stream_id}")
+         return None
+ 
+-    bot_user_id = get_bot_account(target_stream.platform)
++    bot_user_id = _get_target_stream_bot_account(target_stream)
+     if not bot_user_id:
+         logger.error(f"[SendService] 平台 {target_stream.platform} 未配置机器人账号，无法发送消息")
+         return None

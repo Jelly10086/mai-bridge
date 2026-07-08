@@ -102,6 +102,7 @@ describe('mai.ko convert', () => {
     const message = await (sessionToMaimMessage as any)(session, route, 'key')
 
     assert.equal(message.message_info.user_info?.user_id, '10001')
+    assert.equal(message.message_info.additional_config.platform_io_account_id, '3876469841')
     assert.equal(message.message_info.user_info?.user_nickname, '10001')
     assert.equal(message.message_info.group_info?.group_id, '248727194')
     assert.equal(message.message_info.group_info?.group_name, '248727194')

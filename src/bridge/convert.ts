@@ -216,6 +216,7 @@ export async function sessionToMaimMessage(
       additional_config: {
         koishi_route_id: route.routeId,
         koishi_self_id: session.selfId,
+        platform_io_account_id: session.selfId,
         koishi_platform: session.platform,
         koishi_channel_id: session.channelId || '',
         koishi_guild_id: session.guildId,
