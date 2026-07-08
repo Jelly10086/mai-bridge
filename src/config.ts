@@ -68,7 +68,7 @@ export const Config: Schema<Config> = Schema.intersect([
     pythonCommand: Schema.string().default('python3').description('用于启动 mai.ko 的 Python 命令。'),
     entryScript: Schema.string().default('bot.py').description('相对于 mai.ko 根目录的启动脚本。'),
     autoStart: Schema.boolean().default(true).description('Koishi ready 后自动启动 mai.ko。'),
-    acceptMaibotAgreements: Schema.boolean().default(false).description('是否由插件注入 EULA/Privacy 确认哈希。默认关闭。'),
+    acceptMaibotAgreements: Schema.boolean().default(false).description('确认同意 MaiBot 的 EULA/Privacy。'),
   }).description('mai.ko 进程'),
   Schema.object({
     apiHost: Schema.string().default('maimai-ko').description('Koishi 连接 maim_message 新版 API Server 的地址。Docker 模式默认使用容器名。'),

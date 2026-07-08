@@ -20,7 +20,7 @@ declare module '@koishijs/plugin-console' {
 
 export function registerConsole(ctx: Context, config: Config) {
   if (!config.enableConsole) return
-  ctx.inject(['console'], (ctx) => {
+  ctx.inject(['console', 'maimai'], (ctx) => {
     const options = { authority: config.commandAuthority }
     ctx.console.addListener('mai-ko/status', () => ctx.maimai.getStatus(), options)
     ctx.console.addListener('mai-ko/start', () => ctx.maimai.launch(), options)

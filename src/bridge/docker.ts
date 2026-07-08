@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { isAbsolute, join, relative, resolve } from 'path'
 import { Logger } from 'koishi'
 import type { Config } from '../config'
 import type { DockerState, RuntimeStatus } from '../types'
@@ -7,6 +7,13 @@ import { resolveMaiKoDataDir, resolveMaibotRoot } from '../utils/paths'
 import { assertSuccessful, runCommand, type CommandResult } from '../utils/spawn'
 import { redactSecret } from '../utils/command'
 import { prepareAgreementEnv } from './agreements'
+
+interface DockerMount {
+  Source?: string
+  Destination?: string
+}
+
+type DockerVolume = readonly [string, string]
 
 export class MaibotDockerManager {
   private logger = new Logger('mai.ko/docker')
@@ -110,13 +117,19 @@ export class MaibotDockerManager {
     }
 
     this.ensureVolumeDirs()
-    const args = this.createRunArgs(agreements.env)
+    const dockerNetwork = await this.resolveDockerNetwork()
+    const dockerVolumes = await this.resolveDockerVolumes()
+    const args = this.createRunArgs(agreements.env, dockerNetwork, dockerVolumes)
     this.pushLog(`creating Docker container: ${this.config.dockerContainerName}`)
     const result = await this.docker(args)
     assertSuccessful(result, 'docker create')
   }
 
-  private createRunArgs(agreementEnv: Record<string, string>) {
+  private createRunArgs(
+    agreementEnv: Record<string, string>,
+    dockerNetwork = this.config.dockerNetwork,
+    dockerVolumes: readonly DockerVolume[] = this.volumeMap(),
+  ) {
     const args = [
       'create',
       '--name',
@@ -125,8 +138,8 @@ export class MaibotDockerManager {
       'unless-stopped',
     ]
 
-    if (this.config.dockerNetwork) {
-      args.push('--network', this.config.dockerNetwork)
+    if (dockerNetwork) {
+      args.push('--network', dockerNetwork)
     }
 
     if (this.config.dockerPublishedWebuiPort > 0) {
@@ -138,7 +151,7 @@ export class MaibotDockerManager {
       args.push('-e', `${key}=${value}`)
     }
 
-    for (const [source, target] of this.volumeMap()) {
+    for (const [source, target] of dockerVolumes) {
       args.push('-v', `${source}:${target}`)
     }
 
@@ -181,8 +194,76 @@ export class MaibotDockerManager {
     }
   }
 
+  private async resolveDockerVolumes() {
+    const volumes: DockerVolume[] = []
+    for (const [source, target] of this.volumeMap()) {
+      volumes.push([await this.resolveDockerHostPath(source), target])
+    }
+    return volumes
+  }
+
+  private async resolveDockerHostPath(containerPath: string) {
+    const hostname = process.env.HOSTNAME
+    if (!hostname) return containerPath
+
+    const result = await this.run(this.config.dockerCommand, [
+      'container',
+      'inspect',
+      hostname,
+      '--format',
+      '{{json .Mounts}}',
+    ], false)
+    if (result.code !== 0) return containerPath
+
+    try {
+      const mounts = JSON.parse(result.stdout) as DockerMount[]
+      const normalizedPath = resolve(containerPath)
+      const candidates = mounts
+        .filter((mount) => mount.Source && mount.Destination)
+        .map((mount) => ({
+          source: mount.Source!,
+          destination: resolve(mount.Destination!),
+        }))
+        .sort((a, b) => b.destination.length - a.destination.length)
+
+      for (const mount of candidates) {
+        const rest = relative(mount.destination, normalizedPath)
+        if (rest === '' || (rest && !rest.startsWith('..') && !isAbsolute(rest))) {
+          return join(mount.source, rest)
+        }
+      }
+    } catch (error) {
+      this.logger.debug(error)
+    }
+
+    return containerPath
+  }
+
+  private async resolveDockerNetwork() {
+    if (this.config.dockerNetwork) return this.config.dockerNetwork
+    const hostname = process.env.HOSTNAME
+    if (!hostname) return ''
+
+    const result = await this.run(this.config.dockerCommand, [
+      'container',
+      'inspect',
+      hostname,
+      '--format',
+      '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}',
+    ], false)
+    if (result.code !== 0) return ''
+
+    const network = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line && !['bridge', 'host', 'none'].includes(line))
+    if (!network) return ''
+    this.pushLog(`using Docker network from Koishi container: ${network}`)
+    return network
+  }
+
   private async containerExists() {
-    const result = await this.run(this.config.dockerCommand, ['inspect', this.config.dockerContainerName], false)
+    const result = await this.run(this.config.dockerCommand, ['container', 'inspect', this.config.dockerContainerName], false)
     return result.code === 0
   }
 

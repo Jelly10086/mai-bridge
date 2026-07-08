@@ -511,7 +511,10 @@ export class MaibotService extends Service {
     if (host === '0.0.0.0') host = '127.0.0.1'
     if (host === '::') host = '::1'
     const normalizedHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
-    return `http://${normalizedHost}:${this.pluginConfig.webuiPort}`
+    const port = this.pluginConfig.processMode === 'docker' && this.pluginConfig.dockerPublishedWebuiPort > 0
+      ? this.pluginConfig.dockerPublishedWebuiPort
+      : this.pluginConfig.webuiPort
+    return `http://${normalizedHost}:${port}`
   }
 
   private async handleMaimMessage(message: MaimApiMessage) {
