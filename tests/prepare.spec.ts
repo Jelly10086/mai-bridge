@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { strict as assert } from 'assert'
-import { existsSync, mkdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import type { Config } from '../src/config'
@@ -161,6 +161,79 @@ describe('mai.ko prepare manager', () => {
 
     assert.equal(status.state, 'blocked')
     assert.ok(status.blockedReason?.includes('patch cannot be applied'))
+  })
+
+  it('refreshes an old managed bundled patch', async () => {
+    const maibotRoot = join(root, 'maimai')
+    mkdirSync(join(maibotRoot, '.git'), { recursive: true })
+    writeFileSync(join(maibotRoot, '.mai-ko-prepare.json'), JSON.stringify({
+      gitUrl: 'https://github.com/Mai-with-u/MaiBot.git',
+      gitRef: 'main',
+      patchChecksum: 'old-checksum',
+      patchApplied: true,
+      commit: 'oldcommit',
+      updatedAt: Date.now(),
+    }))
+
+    const manager = new MaibotPrepareManager(createConfig(maibotRoot))
+    const calls: string[][] = []
+    let refreshed = false
+
+    manager.git = async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return { code: 0, stdout: 'true\n', stderr: '', signal: null }
+      if (args[0] === 'apply' && args[1] === '--check') return { code: refreshed ? 0 : 1, stdout: '', stderr: '', signal: null }
+      if (args[0] === 'apply' && args[1] === '--reverse') return { code: 1, stdout: '', stderr: 'old patch', signal: null }
+      if (args[0] === 'status') {
+        return {
+          code: 0,
+          stdout: ' M src/main.py\n M src/config/startup_bindings.py\n',
+          stderr: '',
+          signal: null,
+        }
+      }
+      if (args[0] === 'restore') {
+        refreshed = true
+        return { code: 0, stdout: '', stderr: '', signal: null }
+      }
+      if (args[0] === 'rev-parse') return { code: 0, stdout: 'newcommit\n', stderr: '', signal: null }
+      return { code: 0, stdout: '', stderr: '', signal: null }
+    }
+
+    const status = await manager.prepare()
+
+    assert.equal(status.state, 'ready')
+    assert.equal(status.patchApplied, true)
+    assert.equal(status.commit, 'newcommit')
+    assert.ok(calls.some((args) => args[0] === 'restore'))
+    assert.ok(calls.some((args) => args[0] === 'apply' && args.length === 2))
+  })
+
+  it('blocks old patch refresh when local changes are outside bundled patch', async () => {
+    const maibotRoot = join(root, 'maimai')
+    mkdirSync(join(maibotRoot, '.git'), { recursive: true })
+    writeFileSync(join(maibotRoot, '.mai-ko-prepare.json'), JSON.stringify({
+      gitUrl: 'https://github.com/Mai-with-u/MaiBot.git',
+      gitRef: 'main',
+      patchChecksum: 'old-checksum',
+      patchApplied: true,
+      commit: 'oldcommit',
+      updatedAt: Date.now(),
+    }))
+
+    const manager = new MaibotPrepareManager(createConfig(maibotRoot))
+
+    manager.git = async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return { code: 0, stdout: 'true\n', stderr: '', signal: null }
+      if (args[0] === 'apply') return { code: 1, stdout: '', stderr: 'conflict', signal: null }
+      if (args[0] === 'status') return { code: 0, stdout: ' M user_config.toml\n', stderr: '', signal: null }
+      return { code: 0, stdout: '', stderr: '', signal: null }
+    }
+
+    const status = await manager.prepare()
+
+    assert.equal(status.state, 'blocked')
+    assert.ok(status.blockedReason?.includes('local changes outside bundled patch'))
   })
 
   it('recovers an interrupted clone when the root only contains broken git metadata', async () => {

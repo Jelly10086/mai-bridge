@@ -158,6 +158,12 @@ export class MaibotPrepareManager {
       throw new Error(`blocked: bundled patch not found: ${patchPath}`)
     }
     if (patchState === 'conflict') {
+      const refreshed = await this.refreshManagedPatch(patchPath)
+      if (refreshed === 'applied') return
+      if (refreshed === 'pending') {
+        await this.applyPatch(patchPath)
+        return
+      }
       throw new Error('blocked: bundled patch cannot be applied cleanly; check MaiBot ref or update maimai-koishi.patch')
     }
     if (patchState === 'applied') {
@@ -166,6 +172,10 @@ export class MaibotPrepareManager {
       return
     }
 
+    await this.applyPatch(patchPath)
+  }
+
+  private async applyPatch(patchPath: string) {
     this.pushLog(`applying bundled patch: ${patchPath}`)
     await this.git(['apply', patchPath], this.root)
     this.patchApplied = true
@@ -178,6 +188,68 @@ export class MaibotPrepareManager {
     const reverseCheck = await this.git(['apply', '--reverse', '--check', patchPath], this.root, true, false)
     if (reverseCheck.code === 0) return 'applied'
     return 'conflict'
+  }
+
+  private async refreshManagedPatch(patchPath: string): Promise<'pending' | 'applied' | undefined> {
+    const marker = this.readMarker()
+    if (!marker?.patchApplied) return
+    if (marker.gitUrl !== this.config.maibotGitUrl || marker.gitRef !== this.config.maibotGitRef) return
+    if (!marker.patchChecksum || marker.patchChecksum === this.patchChecksum) return
+
+    const patchPaths = new Set(this.listPatchPaths(patchPath))
+    const dirtyFiles = await this.listDirtyTrackedFiles()
+    if (!dirtyFiles.length) return
+
+    const foreignFiles = dirtyFiles.filter((file) => !patchPaths.has(file))
+    if (foreignFiles.length) {
+      throw new Error(`blocked: MaiBot has local changes outside bundled patch: ${foreignFiles.slice(0, 5).join(', ')}`)
+    }
+
+    this.pushLog('refreshing managed bundled patch')
+    await this.git(['restore', '--source', 'HEAD', '--', ...dirtyFiles], this.root)
+
+    const patchState = await this.checkPatchState(patchPath)
+    if (patchState === 'pending') return 'pending'
+    if (patchState === 'applied') {
+      this.patchApplied = true
+      this.pushLog('bundled patch already applied')
+      return 'applied'
+    }
+    throw new Error('blocked: bundled patch cannot be refreshed cleanly; check MaiBot ref or update maimai-koishi.patch')
+  }
+
+  private readMarker(): PrepareMarker | undefined {
+    try {
+      const marker = JSON.parse(readFileSync(join(this.root, '.mai-ko-prepare.json'), 'utf8')) as PrepareMarker
+      if (!marker || typeof marker !== 'object') return
+      return marker
+    } catch {
+      return
+    }
+  }
+
+  private listPatchPaths(patchPath: string) {
+    const paths = new Set<string>()
+    const patch = readFileSync(patchPath, 'utf8')
+    for (const line of patch.split(/\r?\n/)) {
+      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line)
+      if (!match) continue
+      if (match[2] !== '/dev/null') paths.add(match[2])
+    }
+    return [...paths]
+  }
+
+  private async listDirtyTrackedFiles() {
+    const result = await this.git(['status', '--porcelain', '--untracked-files=no'], this.root, true, false)
+    if (result.code !== 0) return []
+    return result.stdout
+      .split(/\r?\n/)
+      .map((line) => {
+        if (!line.trim()) return ''
+        const path = line.slice(3)
+        return path.includes(' -> ') ? path.split(' -> ').pop()! : path
+      })
+      .filter(Boolean)
   }
 
   private async readCommit() {

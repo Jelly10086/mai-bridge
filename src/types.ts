@@ -53,12 +53,15 @@ export interface RuntimeStatus {
     koishiSent: number
     routeMissed: number
     sendFailed: number
+    groupTriggerSkipped: number
     lastKoishiMessageAt?: number
     lastMaimSendAt?: number
     lastMaimMessageAt?: number
     lastKoishiSendAt?: number
     lastRouteId?: string
     lastMessageId?: string
+    lastGroupTriggerCount?: number
+    lastGroupTriggerThreshold?: number
     lastError?: string
   }
   webui: {

@@ -3,6 +3,7 @@ import type { Config } from './config'
 import { getFallbackRouteHints, getRouteIdFromMaim, maimMessageToFragment, sessionToMaimMessage, shouldForwardSession } from './bridge/convert'
 import { MaibotDockerManager } from './bridge/docker'
 import { ExternalLogForwarder } from './bridge/external-logs'
+import { GroupMessageTrigger } from './bridge/group-trigger'
 import { MessageHistory } from './bridge/history'
 import { MaibotPrepareManager } from './bridge/prepare'
 import { MaibotProcessManager, createApiKey } from './bridge/process'
@@ -19,6 +20,7 @@ export class MaibotService extends Service {
   private docker: MaibotDockerManager
   private process: MaibotProcessManager
   private externalLogs: ExternalLogForwarder
+  private groupTrigger: GroupMessageTrigger
   private history: MessageHistory
   private routes: RouteRegistry
   private transport: MaimTransport
@@ -41,6 +43,7 @@ export class MaibotService extends Service {
     koishiSent: 0,
     routeMissed: 0,
     sendFailed: 0,
+    groupTriggerSkipped: 0,
   }
 
   constructor(public ctx: Context, private pluginConfig: Config) {
@@ -50,6 +53,7 @@ export class MaibotService extends Service {
     this.docker = new MaibotDockerManager(pluginConfig, this.apiKey)
     this.process = new MaibotProcessManager(ctx, pluginConfig, this.apiKey)
     this.externalLogs = new ExternalLogForwarder(ctx, pluginConfig, [this.apiKey, pluginConfig.apiKey])
+    this.groupTrigger = new GroupMessageTrigger(pluginConfig.groupMessageTriggerCount)
     this.history = new MessageHistory(pluginConfig.routeTtl)
     this.routes = new RouteRegistry(pluginConfig.routeTtl)
     this.transport = new MaimTransport(ctx, pluginConfig, this.apiKey, {
@@ -227,6 +231,19 @@ export class MaibotService extends Service {
     this.logMessageDetail(`koishi message received: ${describeSession(session)}`)
 
     try {
+      const route = this.routes.remember(session)
+      const trigger = this.groupTrigger.test(session, route)
+      if (!trigger.shouldForward) {
+        this.history.rememberSession(session, route)
+        this.bridge.groupTriggerSkipped += 1
+        this.bridge.lastGroupTriggerCount = trigger.count
+        this.bridge.lastGroupTriggerThreshold = trigger.threshold
+        this.bridge.lastRouteId = route.routeId
+        this.logMessageDetail(`koishi -> maimai gated: route=${route.routeId} count=${trigger.count}/${trigger.threshold} ${describeSession(session)}`)
+        if (this.pluginConfig.messageMode === 'exclusive') return ''
+        return next()
+      }
+
       if (this.transportState !== 'connected') {
         const error = `bridge is not connected: state=${this.transportState}`
         this.bridge.sendFailed += 1
@@ -237,7 +254,6 @@ export class MaibotService extends Service {
         return next()
       }
 
-      const route = this.routes.remember(session)
       const replyContext = this.history.resolveReplyContext(session, route)
       const message = await sessionToMaimMessage(session, route, this.apiKey, {
         resolveImage: (source) => this.resolveImageToBase64(source),
@@ -265,6 +281,7 @@ export class MaibotService extends Service {
   async dispose() {
     await this.shutdown()
     this.routes.clear()
+    this.groupTrigger.clear()
     this.history.clear()
   }
 
