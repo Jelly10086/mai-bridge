@@ -60,6 +60,7 @@ webuiPort: 8002
 messageMode: coexist
 groupMessageTriggerCount: 1
 directMessageTriggerCount: 1
+commandResultMode: source
 ```
 
 说明：
@@ -71,6 +72,8 @@ directMessageTriggerCount: 1
 - `webuiPublicUrl` 可填写反代或宿主机映射后的 WebUI 地址，用于 Koishi 控制台显示入口。
 - `groupMessageTriggerCount` 控制群聊累计多少条消息后批量转发并强制触发 maibot 思考。设为 `3` 时，同一群前两条先缓存，第 3 条会连同前两条一起转发。
 - `directMessageTriggerCount` 控制私聊累计多少条消息后批量转发并强制触发 maibot 思考。默认 `1`，表示每条私信都会触发；设为 `3` 时，同一私聊前两条只缓存，第 3 条统一转发并触发回复。
+- `commandResultMode` 控制聊天中执行 `mai.ko.*` 管理指令后的结果发送方式。`source` 发回原群聊/私聊，`admin` 发到管理员私聊，`silent` 不发送结果。
+- `commandResultAdminUserId` 仅在 `commandResultMode: admin` 时使用。填写管理员 QQ 号；留空时发给指令调用者。
 
 ## 消息模式
 

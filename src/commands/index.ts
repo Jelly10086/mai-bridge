@@ -1,6 +1,8 @@
-import type { Context } from 'koishi'
+import { Logger, type Awaitable, type Context, type Fragment, type Session } from 'koishi'
 import type { Config } from '../config'
 import type { RuntimeStatus } from '../types'
+
+const logger = new Logger('mai.ko/commands')
 
 function formatTime(value?: number) {
   return value ? new Date(value).toLocaleString() : '-'
@@ -34,37 +36,61 @@ export function renderStatus(status: RuntimeStatus) {
   return lines.join('\n')
 }
 
+export async function sendCommandResult(session: Session, config: Config, content: string): Promise<Fragment | void> {
+  if (config.commandResultMode === 'silent') return
+  if (config.commandResultMode !== 'admin') return content
+
+  const userId = config.commandResultAdminUserId.trim() || session.userId
+  if (!userId) return 'mai.ko 指令结果发送失败：没有可用的管理员用户 ID。'
+  if (!session.bot?.sendPrivateMessage) return 'mai.ko 指令结果发送失败：当前平台不支持私聊发送。'
+
+  try {
+    const guildId = config.commandResultAdminGuildId.trim() || undefined
+    await session.bot.sendPrivateMessage(userId, content, guildId, { session })
+    if (config.commandResultNotifySource) return 'mai.ko 指令结果已发送给管理员。'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.warn(`send command result failed: user=${userId} error=${message}`)
+    return `mai.ko 指令结果发送失败：${message}`
+  }
+}
+
+async function handleCommandResult(session: Session | undefined, config: Config, status: Awaitable<RuntimeStatus>) {
+  const content = renderStatus(await status)
+  return session ? sendCommandResult(session, config, content) : content
+}
+
 export function registerCommands(ctx: Context, config: Config) {
   const options = { authority: config.commandAuthority }
 
   ctx.command('mai.ko', '查看 mai.ko 托管状态', options)
     .alias('maibot')
-    .action(() => renderStatus(ctx.maimai.getStatus()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.getStatus()))
 
   ctx.command('mai.ko.status', '查看 mai.ko 托管状态', options)
-    .action(() => renderStatus(ctx.maimai.getStatus()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.getStatus()))
 
   ctx.command('mai.ko.start', '启动 mai.ko', options)
-    .action(async () => renderStatus(await ctx.maimai.launch()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.launch()))
 
   ctx.command('mai.ko.stop', '停止 mai.ko', options)
-    .action(async () => renderStatus(await ctx.maimai.shutdown()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.shutdown()))
 
   ctx.command('mai.ko.restart', '重启 mai.ko', options)
-    .action(async () => renderStatus(await ctx.maimai.restart()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.restart()))
 
   ctx.command('mai.ko.reconnect', '重连 mai.ko Bridge', options)
-    .action(async () => renderStatus(await ctx.maimai.reconnect()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.reconnect()))
 
   ctx.command('mai.ko.prepare', '准备 MaiBot 源码、补丁与 Docker 镜像', options)
-    .action(async () => renderStatus(await ctx.maimai.prepare()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.prepare()))
 
   ctx.command('mai.ko.docker.start', '启动 maimai-ko Docker 容器', options)
-    .action(async () => renderStatus(await ctx.maimai.dockerStart()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.dockerStart()))
 
   ctx.command('mai.ko.docker.stop', '停止 maimai-ko Docker 容器', options)
-    .action(async () => renderStatus(await ctx.maimai.dockerStop()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.dockerStop()))
 
   ctx.command('mai.ko.docker.restart', '重建并重启 maimai-ko Docker 容器', options)
-    .action(async () => renderStatus(await ctx.maimai.dockerRestart()))
+    .action((argv) => handleCommandResult(argv.session, config, ctx.maimai.dockerRestart()))
 }

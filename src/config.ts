@@ -1,5 +1,5 @@
 import { Schema } from 'koishi'
-import type { MessageLogLevel, MessageMode, ProcessMode } from './types'
+import type { CommandResultMode, MessageLogLevel, MessageMode, ProcessMode } from './types'
 
 export interface Config {
   processMode: ProcessMode
@@ -31,6 +31,10 @@ export interface Config {
   imageDownloadMaxBytes: number
   messageLogLevel: MessageLogLevel
   commandAuthority: number
+  commandResultMode: CommandResultMode
+  commandResultAdminUserId: string
+  commandResultAdminGuildId: string
+  commandResultNotifySource: boolean
   acceptMaibotAgreements: boolean
   startupTimeout: number
   shutdownTimeout: number
@@ -105,6 +109,14 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('detail').description('详细：输出每一步消息中转细节。'),
     ]).default('summary').description('mai.ko 消息中转日志详细程度。'),
     commandAuthority: Schema.number().min(0).max(5).default(3).description('管理指令需要的权限等级。'),
+    commandResultMode: Schema.union([
+      Schema.const('source').description('原会话：指令结果发送到触发指令的群聊或私聊。'),
+      Schema.const('admin').description('管理员私聊：指令结果发送到指定管理员；未填写管理员时发送给指令调用者。'),
+      Schema.const('silent').description('静默：执行指令但不发送结果。'),
+    ]).default('source').description('聊天中执行 mai.ko 管理指令后的结果发送方式。'),
+    commandResultAdminUserId: Schema.string().default('').description('管理员用户 ID。仅 commandResultMode=admin 时使用；留空时发送给指令调用者。'),
+    commandResultAdminGuildId: Schema.string().default('').description('发送管理员私聊时附带的群组/频道 ID。通常可留空。'),
+    commandResultNotifySource: Schema.boolean().default(false).description('结果发送给管理员后，是否在原会话发送一条简短提示。'),
   }).description('消息路由'),
   Schema.object({
     startupTimeout: Schema.number().min(1000).default(60000).description('等待 mai.ko API 可连接的超时时间，单位毫秒。'),
