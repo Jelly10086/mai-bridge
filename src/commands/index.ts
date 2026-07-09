@@ -42,11 +42,18 @@ export async function sendCommandResult(session: Session, config: Config, conten
 
   const userId = config.commandResultAdminUserId.trim() || session.userId
   if (!userId) return 'mai.ko 指令结果发送失败：没有可用的管理员用户 ID。'
-  if (!session.bot?.sendPrivateMessage) return 'mai.ko 指令结果发送失败：当前平台不支持私聊发送。'
 
   try {
+    const isCurrentDirectUser = session.isDirect && userId === session.userId
+    if (isCurrentDirectUser) {
+      await session.send(content)
+      if (config.commandResultNotifySource) return 'mai.ko 指令结果已发送给管理员。'
+      return
+    }
+
+    if (!session.bot?.sendPrivateMessage) return 'mai.ko 指令结果发送失败：当前平台不支持私聊发送。'
     const guildId = config.commandResultAdminGuildId.trim() || undefined
-    await session.bot.sendPrivateMessage(userId, content, guildId, { session })
+    await session.bot.sendPrivateMessage(userId, content, guildId)
     if (config.commandResultNotifySource) return 'mai.ko 指令结果已发送给管理员。'
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

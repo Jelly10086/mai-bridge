@@ -15,8 +15,14 @@ function config(overrides: Record<string, unknown> = {}) {
 
 function session(overrides: Record<string, unknown> = {}) {
   const sent: Array<[string, string, string | undefined, unknown]> = []
+  const sourceSent: string[] = []
   return {
     userId: '10001',
+    isDirect: false,
+    send: async (content: string) => {
+      sourceSent.push(content)
+      return ['source-message-id']
+    },
     bot: {
       sendPrivateMessage: async (userId: string, content: string, guildId?: string, options?: unknown) => {
         sent.push([userId, content, guildId, options])
@@ -24,6 +30,7 @@ function session(overrides: Record<string, unknown> = {}) {
       },
     },
     sent,
+    sourceSent,
     ...overrides,
   }
 }
@@ -48,8 +55,19 @@ describe('mai.ko commands', () => {
       '20002',
       'status text',
       '30003',
-      { session: currentSession },
+      undefined,
     ]])
+  })
+
+  it('sends admin result through the current direct session when it targets the caller', async () => {
+    const currentSession = session({ isDirect: true })
+    const result = await sendCommandResult(currentSession, config({
+      commandResultMode: 'admin',
+    }), 'status text')
+
+    assert.equal(result, undefined)
+    assert.deepEqual(currentSession.sourceSent, ['status text'])
+    assert.deepEqual(currentSession.sent, [])
   })
 
   it('can notify the source session after sending to admin', async () => {

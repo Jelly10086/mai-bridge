@@ -44,7 +44,7 @@ describe('mai.ko convert', () => {
     assert.deepEqual(fragment, h('img', { src: 'https://example.com/a.png' }))
   })
 
-  it('drops maim reply segments instead of rendering them as text', () => {
+  it('converts maim reply segments to koishi quote elements', () => {
     const fragment = maimMessageToFragment({
       message_info: {
         platform: 'koishi',
@@ -70,7 +70,85 @@ describe('mai.ko convert', () => {
       },
     })
 
-    assert.deepEqual(fragment, ['你好啊'])
+    assert.deepEqual(fragment, [
+      h('quote', { id: '897510321' }),
+      '你好啊',
+    ])
+  })
+
+  it('keeps maim quote segments before text even when maibot appends reply later', () => {
+    const fragment = maimMessageToFragment({
+      message_info: {
+        platform: 'koishi',
+        message_id: '1',
+        time: 1,
+      },
+      message_segment: {
+        type: 'seglist',
+        data: [
+          {
+            type: 'text',
+            data: '收到，',
+          },
+          {
+            type: 'reply',
+            data: {
+              target_message_id: '897510321',
+              target_message_content: '这个是什么',
+            },
+          },
+          {
+            type: 'text',
+            data: '这是饼干',
+          },
+        ],
+      },
+      message_dim: {
+        api_key: 'key',
+        platform: 'koishi',
+      },
+    })
+
+    assert.deepEqual(fragment, [
+      h('quote', { id: '897510321' }),
+      '收到，',
+      '这是饼干',
+    ])
+  })
+
+  it('converts maim at segments to koishi at elements', () => {
+    const fragment = maimMessageToFragment({
+      message_info: {
+        platform: 'koishi',
+        message_id: '1',
+        time: 1,
+      },
+      message_segment: {
+        type: 'seglist',
+        data: [
+          {
+            type: 'text',
+            data: '你好 ',
+          },
+          {
+            type: 'at',
+            data: {
+              target_user_id: '20002',
+              target_user_nickname: 'Soyo',
+            },
+          },
+        ],
+      },
+      message_dim: {
+        api_key: 'key',
+        platform: 'koishi',
+      },
+    })
+
+    assert.deepEqual(fragment, [
+      '你好 ',
+      h('at', { id: '20002', name: 'Soyo' }),
+    ])
   })
 
   it('fills maim-required top-level user and group info for group sessions', async () => {

@@ -4,6 +4,8 @@ import type { KoishiRoute, MaimApiMessage, MaimInfoBase, MaimSeg } from '../type
 
 const PLATFORM = 'koishi'
 
+type SendFragment = string | h
+
 export interface SessionToMaimOptions {
   resolveImage?: (source: string) => Awaitable<string | undefined>
   replyContext?: ReplyContext
@@ -174,6 +176,69 @@ function firstString(...values: unknown[]) {
   }
 }
 
+function segDataObject(segment: MaimSeg) {
+  return segment.data && typeof segment.data === 'object' && !Array.isArray(segment.data)
+    ? segment.data as Record<string, any>
+    : undefined
+}
+
+function segDataString(segment: MaimSeg) {
+  return typeof segment.data === 'string' ? segment.data.trim() : ''
+}
+
+function atFragment(segment: MaimSeg): Fragment {
+  const data = segDataObject(segment)
+  const id = firstString(
+    data?.target_user_id,
+    data?.user_id,
+    data?.id,
+    data?.qq,
+    segDataString(segment),
+  )
+  if (!id) return ''
+
+  const name = firstString(
+    data?.target_user_cardname,
+    data?.target_user_nickname,
+    data?.user_cardname,
+    data?.user_nickname,
+    data?.name,
+    data?.nick,
+  )
+  return h('at', name ? { id, name } : { id })
+}
+
+function quoteFragment(segment: MaimSeg): Fragment {
+  const data = segDataObject(segment)
+  const id = firstString(
+    data?.target_message_id,
+    data?.message_id,
+    data?.id,
+    data?.target,
+    segDataString(segment),
+  )
+  return id ? h('quote', { id }) : ''
+}
+
+function flattenFragment(fragment: Fragment | null | undefined): SendFragment[] {
+  if (Array.isArray(fragment)) return fragment.flatMap(flattenFragment)
+  if (fragment === '' || fragment === null || fragment === undefined) return []
+  return [fragment as SendFragment]
+}
+
+function orderSendFragments(fragments: SendFragment[]): SendFragment[] {
+  const quotes: SendFragment[] = []
+  const rest: SendFragment[] = []
+  for (const fragment of fragments) {
+    if (typeof fragment !== 'string' && fragment.type === 'quote') {
+      quotes.push(fragment)
+    } else {
+      rest.push(fragment)
+    }
+  }
+  return [...quotes, ...rest]
+}
+
 function buildSenderInfo(session: Session): MaimInfoBase {
   const userId = nonEmptyString(session.userId || session.author?.id, 'unknown')
   const channelId = nonEmptyString(session.channelId, 'unknown')
@@ -248,9 +313,7 @@ export async function sessionToMaimMessage(
 
 function segToFragment(segment: MaimSeg): Fragment {
   if (segment.type === 'seglist' && Array.isArray(segment.data)) {
-    return segment.data
-      .map(segToFragment)
-      .filter((fragment) => fragment !== '' && (!Array.isArray(fragment) || fragment.length > 0)) as h[]
+    return orderSendFragments(segment.data.flatMap((item) => flattenFragment(segToFragment(item)))) as h[]
   }
   if (segment.type === 'text') {
     return String(segment.data ?? '')
@@ -264,8 +327,11 @@ function segToFragment(segment: MaimSeg): Fragment {
   if (segment.type === 'emoji') {
     return String(segment.data ?? '')
   }
-  if (segment.type === 'reply') {
-    return ''
+  if (segment.type === 'at' || segment.type === 'mention') {
+    return atFragment(segment)
+  }
+  if (segment.type === 'reply' || segment.type === 'quote') {
+    return quoteFragment(segment)
   }
   return `[${segment.type}]${typeof segment.data === 'string' ? segment.data : JSON.stringify(segment.data)}`
 }
