@@ -37,10 +37,13 @@
     "category:ai",
     "maimai",
     "mai.ko",
-    "chatbot"
+    "chatbot",
+    "ai",
+    "llm"
   ],
   "license": "GPL-3.0-or-later",
   "koishi": {
+    "category": "ai",
     "description": {
       "zh": "将 maibot 作为 docker 托管的消息回复后端运行，使用 mai.ko 桥接消息收发。",
       "en": "Run maibot as a Docker-hosted reply backend and bridge messages through mai.ko."
