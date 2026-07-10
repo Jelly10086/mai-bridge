@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-mai-bridge",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "将 maibot 作为 docker 托管的消息回复后端运行，使用 mai.ko 桥接消息收发。",
   "author": "Jelly10086 <wow40469600@gmail.com>",
   "contributors": [
