@@ -273,7 +273,9 @@ export class MaibotService extends Service {
       return next()
     }
 
+    const route = this.routes.remember(session)
     if (!shouldForwardSession(session, this.pluginConfig)) {
+      this.history.rememberSession(session, route)
       this.log.debug(`skip koishi message: ${describeSession(session)}`)
       return next()
     }
@@ -284,7 +286,6 @@ export class MaibotService extends Service {
     this.logMessageDetail(`koishi message received: ${describeSession(session)}`)
 
     try {
-      const route = this.routes.remember(session)
       const triggerKind = session.isDirect ? 'direct' : 'group'
       const trigger = session.isDirect
         ? this.directTrigger.test(session, route)

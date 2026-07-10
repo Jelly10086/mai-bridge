@@ -80,8 +80,57 @@ describe('mai.ko message history', () => {
 
     assert.equal(context.targetMessageId, 'bot-msg-1')
     assert.equal(context.contextCount, 5)
-    assert.match(context.targetMessageContent, /这个是什么 <- 被回复/)
+    assert.match(context.targetMessageContent, /发送者: mai\.ko\(3876469841\)/)
+    assert.match(context.targetMessageContent, /mai\.ko\(3876469841\): 这个是什么 <- 被回复/)
     assert.match(context.targetMessageContent, /补充3/)
     assert.equal(context.targetMessageSenderId, '3876469841')
+  })
+
+  it('keeps quoted sender and image sources in reply context', () => {
+    const history = new MessageHistory(60000)
+    const groupRoute = route({ userId: '20002' })
+    history.rememberSession({
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '20002',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: 'image-msg-1',
+      timestamp: Date.now(),
+      username: '用户B',
+      content: '<img src="https://example.com/cat.png"/>',
+      elements: [h('img', { src: 'https://example.com/cat.png' })],
+      author: {
+        name: '用户B',
+        nick: 'B卡片',
+      },
+      event: {},
+      isDirect: false,
+    }, groupRoute)
+
+    const context = history.resolveReplyContext({
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: 'reply-image-msg',
+      timestamp: Date.now(),
+      username: '用户A',
+      content: '这是什么',
+      elements: h.parse('这是什么'),
+      quote: {
+        id: 'image-msg-1',
+        messageId: 'image-msg-1',
+      },
+      author: {},
+      event: {},
+      isDirect: false,
+    }, groupRoute)
+
+    assert.equal(context.targetMessageSenderId, '20002')
+    assert.equal(context.targetMessageSenderNickname, 'B卡片')
+    assert.match(context.targetMessageContent, /发送者: B卡片\(20002\)/)
+    assert.deepEqual(context.targetMessageImageSources, ['https://example.com/cat.png'])
   })
 })

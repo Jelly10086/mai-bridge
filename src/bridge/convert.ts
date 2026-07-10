@@ -18,6 +18,7 @@ export interface ReplyContext {
   targetMessageSenderId?: string
   targetMessageSenderNickname?: string
   targetMessageSenderCardname?: string
+  targetMessageImageSources?: string[]
   contextCount?: number
 }
 
@@ -91,8 +92,13 @@ async function normalizeSegments(elements: h[], options: SessionToMaimOptions) {
   const hasReplyElement = elements.some((element) => element.type === 'quote' || element.type === 'reply')
   const segments = (await Promise.all(elements.map((element) => elementToSeg(element, options))))
     .filter((segment): segment is MaimSeg => !!segment)
+  const replyImages = await replyImageSegments(options.replyContext, options)
   if (options.replyContext && !hasReplyElement) {
     segments.unshift(replySeg(options.replyContext))
+  }
+  if (replyImages.length) {
+    const replyIndex = segments.findIndex((segment) => segment.type === 'reply' || segment.type === 'quote')
+    segments.splice(replyIndex >= 0 ? replyIndex + 1 : 0, 0, ...replyImages)
   }
 
   if (!segments.length) return textSeg('')
@@ -133,6 +139,16 @@ function replySeg(context: ReplyContext): MaimSeg {
 
   if (Object.keys(data).length === 1) return { type: 'reply', data: context.targetMessageId }
   return { type: 'reply', data }
+}
+
+async function replyImageSegments(context: ReplyContext | undefined, options: SessionToMaimOptions) {
+  const sources = context?.targetMessageImageSources || []
+  const segments: MaimSeg[] = []
+  for (const source of sources) {
+    const segment = await imageSegFromSource(source, options)
+    if (segment) segments.push(segment)
+  }
+  return segments
 }
 
 function replySegFromElement(element: h, context?: ReplyContext): MaimSeg | undefined {

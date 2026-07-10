@@ -568,6 +568,68 @@ describe('mai.ko convert', () => {
     })
   })
 
+  it('adds quoted images from reply context as maim image segments', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      messageId: 'msg-reply-image',
+      timestamp: 1000,
+      content: '这是什么',
+      elements: h.parse('这是什么'),
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key', {
+      resolveImage: async () => Buffer.from('cat').toString('base64'),
+      replyContext: {
+        targetMessageId: 'image-msg-1',
+        targetMessageContent: '[被回复消息]\n发送者: 用户B(20002)\n内容: [图片]',
+        targetMessageSenderId: '20002',
+        targetMessageSenderNickname: '用户B',
+        targetMessageImageSources: ['https://example.com/cat.png'],
+        contextCount: 1,
+      },
+    })
+
+    assert.deepEqual(message.message_segment, {
+      type: 'seglist',
+      data: [
+        {
+          type: 'reply',
+          data: {
+            target_message_id: 'image-msg-1',
+            target_message_content: '[被回复消息]\n发送者: 用户B(20002)\n内容: [图片]',
+            target_message_sender_id: '20002',
+            target_message_sender_nickname: '用户B',
+            koishi_context_count: 1,
+          },
+        },
+        {
+          type: 'image',
+          data: 'Y2F0',
+        },
+        {
+          type: 'text',
+          data: '这是什么',
+        },
+      ],
+    })
+  })
+
   it('extracts private route hints from maimai platform io target user', () => {
     const hints = getFallbackRouteHints({
       message_info: {

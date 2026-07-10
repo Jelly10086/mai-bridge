@@ -12,6 +12,7 @@ interface HistoryMessage {
   senderName: string
   senderCardname?: string
   content: string
+  imageSources: string[]
   timestamp: number
 }
 
@@ -31,6 +32,7 @@ export class MessageHistory {
       senderName: this.pickName(session.author?.nick, session.username, session.author?.name, session.userId),
       senderCardname: this.pickOptional(session.author?.nick),
       content: this.sessionText(session),
+      imageSources: this.sessionImageSources(session),
       timestamp: session.timestamp || Date.now(),
     })
   }
@@ -46,6 +48,7 @@ export class MessageHistory {
       senderName: this.pickName(userInfo?.user_cardname, userInfo?.user_nickname, userInfo?.user_id, 'mai.ko'),
       senderCardname: this.pickOptional(userInfo?.user_cardname),
       content: this.fragmentText(fragment),
+      imageSources: this.fragmentImageSources(fragment),
       timestamp: Date.now(),
     })
   }
@@ -62,14 +65,20 @@ export class MessageHistory {
     const contextMessages = this.ensureTargetInContext(recent, target)
     const quoteContent = this.messageText(quote)
     const targetContent = quoteContent || target?.content || ''
+    const targetSender = this.resolveTargetSender(quote, target)
+    const imageSources = this.uniqueStrings([
+      ...this.messageImageSources(quote),
+      ...(target?.imageSources || []),
+    ])
     const contextText = this.formatContext(contextMessages, targetMessageId)
 
     return {
       targetMessageId,
-      targetMessageContent: this.mergeTargetContent(targetContent, contextText),
-      targetMessageSenderId: this.pickOptional(quote?.user?.id, target?.senderId),
-      targetMessageSenderNickname: this.pickOptional(quote?.user?.name, target?.senderName),
-      targetMessageSenderCardname: this.pickOptional(quote?.member?.nick, target?.senderCardname),
+      targetMessageContent: this.mergeTargetContent(targetContent, contextText, targetSender.label),
+      targetMessageSenderId: targetSender.id,
+      targetMessageSenderNickname: targetSender.name,
+      targetMessageSenderCardname: targetSender.cardname,
+      targetMessageImageSources: imageSources.length ? imageSources : undefined,
       contextCount: contextMessages.length,
     }
   }
@@ -80,7 +89,7 @@ export class MessageHistory {
   }
 
   private remember(message: HistoryMessage) {
-    if (!message.content.trim()) return
+    if (!message.content.trim() && !message.imageSources.length) return
     this.cleanup()
     const existing = this.byId.get(message.messageId)
     if (existing) {
@@ -122,9 +131,12 @@ export class MessageHistory {
     return [...messages, target].slice(-REPLY_CONTEXT_COUNT)
   }
 
-  private mergeTargetContent(targetContent: string, contextText: string) {
+  private mergeTargetContent(targetContent: string, contextText: string, senderLabel?: string) {
     const parts: string[] = []
-    if (targetContent.trim()) parts.push(`[被回复消息]\n${targetContent.trim()}`)
+    const targetLines: string[] = []
+    if (senderLabel) targetLines.push(`发送者: ${senderLabel}`)
+    if (targetContent.trim()) targetLines.push(`内容: ${targetContent.trim()}`)
+    if (targetLines.length) parts.push(`[被回复消息]\n${targetLines.join('\n')}`)
     if (contextText.trim()) parts.push(contextText.trim())
     return parts.join('\n\n') || targetContent
   }
@@ -133,7 +145,7 @@ export class MessageHistory {
     if (!messages.length) return ''
     const lines = messages.map((message, index) => {
       const marker = message.messageId === targetMessageId ? ' <- 被回复' : ''
-      return `${index + 1}. ${message.senderName}: ${message.content}${marker}`
+      return `${index + 1}. ${this.senderLabel(message)}: ${message.content}${marker}`
     })
     return `[最近 ${messages.length} 条上下文]\n${lines.join('\n')}`
   }
@@ -151,6 +163,38 @@ export class MessageHistory {
     if (typeof fragment === 'string') return fragment.trim()
     if (Array.isArray(fragment)) return this.elementsText(fragment)
     return String(fragment || '').trim()
+  }
+
+  private sessionImageSources(session: Session) {
+    return this.elementsImageSources(this.getElements(session))
+  }
+
+  private messageImageSources(message?: { content?: string, elements?: Array<h | string> }) {
+    if (!message) return []
+    const sources = this.elementsImageSources(message.elements || [])
+    if (sources.length) return sources
+    return this.elementsImageSources(h.parse(message.content || ''))
+  }
+
+  private fragmentImageSources(fragment: Fragment): string[] {
+    if (typeof fragment === 'string') return []
+    if (Array.isArray(fragment)) return this.elementsImageSources(fragment)
+    if (fragment && typeof fragment === 'object') return this.elementsImageSources([fragment as h])
+    return []
+  }
+
+  private elementsImageSources(elements: Array<h | string>) {
+    const sources: string[] = []
+    for (const element of elements) {
+      if (typeof element === 'string') continue
+      if (element.type === 'img' || element.type === 'image') {
+        const source = this.pickOptional(element.attrs.src, element.attrs.url, element.attrs.file)
+        if (source) sources.push(source)
+      }
+      const children = (element as any).children
+      if (Array.isArray(children)) sources.push(...this.elementsImageSources(children))
+    }
+    return this.uniqueStrings(sources)
   }
 
   private elementsText(elements: Array<h | string>) {
@@ -188,6 +232,47 @@ export class MessageHistory {
 
   private pickName(...values: unknown[]) {
     return this.pickOptional(...values) || 'unknown'
+  }
+
+  private senderLabel(message: HistoryMessage) {
+    const name = this.pickOptional(message.senderCardname, message.senderName) || message.senderId
+    return name === message.senderId ? name : `${name}(${message.senderId})`
+  }
+
+  private resolveTargetSender(quote: any, target?: HistoryMessage) {
+    const id = this.pickOptional(
+      quote?.user?.id,
+      quote?.author?.id,
+      quote?.userId,
+      quote?.sender?.userId,
+      quote?.sender?.user_id,
+      target?.senderId,
+    )
+    const name = this.pickOptional(
+      quote?.member?.nick,
+      quote?.author?.nick,
+      quote?.user?.name,
+      quote?.author?.name,
+      quote?.sender?.card,
+      quote?.sender?.cardname,
+      quote?.sender?.nickname,
+      quote?.sender?.name,
+      target?.senderCardname,
+      target?.senderName,
+    )
+    const cardname = this.pickOptional(
+      quote?.member?.nick,
+      quote?.author?.nick,
+      quote?.sender?.card,
+      quote?.sender?.cardname,
+      target?.senderCardname,
+    )
+    const label = id && name && name !== id ? `${name}(${id})` : name || id
+    return { id, name, cardname, label }
+  }
+
+  private uniqueStrings(values: string[]) {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
   }
 
   private pickOptional(...values: unknown[]) {
