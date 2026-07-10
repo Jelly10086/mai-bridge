@@ -2,8 +2,18 @@ import { strict as assert } from 'assert'
 import { h } from 'koishi'
 import { getFallbackRouteHints, maimMessageToFragment } from '../src/bridge/convert'
 
-const { sessionToMaimMessage } = require('../src/bridge/convert') as any
+const { isMentioningBot, sessionToMaimMessage, shouldForwardSession } = require('../src/bridge/convert') as any
 const { RouteRegistry } = require('../src/bridge/routes') as any
+
+function forwardConfig(overrides: Record<string, any> = {}) {
+  return {
+    messageMode: 'coexist',
+    commandPrefix: 'mai.ko',
+    groupAutoReplyMode: 'all',
+    groupAutoReplyChannelIds: [],
+    ...overrides,
+  } as any
+}
 
 describe('mai.ko convert', () => {
   it('converts maim text segment to koishi fragment', () => {
@@ -225,6 +235,100 @@ describe('mai.ko convert', () => {
       type: 'text',
       data: '第六条',
     })
+  })
+
+  it('marks a replied bot message as a bot mention', () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      content: '这个呢',
+      elements: h.parse('这个呢'),
+      quote: {
+        user: {
+          id: '3876469841',
+        },
+      },
+      isDirect: false,
+    } as any
+
+    assert.equal(isMentioningBot(session as any), true)
+  })
+
+  it('forwards group mentions even outside the auto-reply allowlist', () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      content: '醒醒',
+      elements: h.parse('醒醒'),
+      stripped: {
+        atSelf: true,
+      },
+      isDirect: false,
+    } as any
+
+    assert.equal(shouldForwardSession(session as any, forwardConfig({
+      groupAutoReplyMode: 'allowlist',
+      groupAutoReplyChannelIds: ['10000'],
+    })), true)
+  })
+
+  it('skips normal messages outside the group auto-reply allowlist', () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      content: '普通群消息',
+      elements: h.parse('普通群消息'),
+      isDirect: false,
+    } as any
+
+    assert.equal(shouldForwardSession(session as any, forwardConfig({
+      groupAutoReplyMode: 'allowlist',
+      groupAutoReplyChannelIds: ['10000'],
+    })), false)
+  })
+
+  it('forwards normal messages inside the group auto-reply allowlist', () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      content: '普通群消息',
+      elements: h.parse('普通群消息'),
+      isDirect: false,
+    } as any
+
+    assert.equal(shouldForwardSession(session as any, forwardConfig({
+      groupAutoReplyMode: 'allowlist',
+      groupAutoReplyChannelIds: ['248727194'],
+    })), true)
+  })
+
+  it('skips normal group messages in mention-only mode', () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      content: '普通群消息',
+      elements: h.parse('普通群消息'),
+      isDirect: false,
+    } as any
+
+    assert.equal(shouldForwardSession(session as any, forwardConfig({
+      groupAutoReplyMode: 'mention-only',
+    })), false)
   })
 
   it('marks forced direct messages as mentioned without changing their text', async () => {

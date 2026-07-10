@@ -58,6 +58,8 @@ webuiEnabled: true
 webuiHost: 0.0.0.0
 webuiPort: 8002
 messageMode: coexist
+groupAutoReplyMode: all
+groupAutoReplyChannelIds: []
 groupMessageTriggerCount: 1
 directMessageTriggerCount: 1
 commandResultMode: source
@@ -70,6 +72,8 @@ commandResultMode: source
 - `apiKey` 可以留空。插件会生成并复用运行期密钥。
 - `dockerNetwork` 按你的 Koishi Docker 网络填写。Koishi 需要能通过 `apiHost` 访问 `maimai-ko`。
 - `webuiPublicUrl` 可填写反代或宿主机映射后的 WebUI 地址，用于 Koishi 控制台显示入口。
+- `groupAutoReplyMode` 控制群聊自动回复范围。`all` 表示所有群自动回复，`allowlist` 表示仅名单内群自动回复，`mention-only` 表示所有群只响应 @ 或回复机器人消息。
+- `groupAutoReplyChannelIds` 是允许自动回复的群聊 ID 名单。`groupAutoReplyMode: allowlist` 时填写群号或频道 ID。
 - `groupMessageTriggerCount` 控制群聊累计多少条消息后批量转发并强制触发 maibot 思考。设为 `3` 时，同一群前两条先缓存，第 3 条会连同前两条一起转发。
 - `directMessageTriggerCount` 控制私聊累计多少条消息后批量转发并强制触发 maibot 思考。默认 `1`，表示每条私信都会触发；设为 `3` 时，同一私聊前两条只缓存，第 3 条统一转发并触发回复。
 - `commandResultMode` 控制聊天中执行 `mai.ko.*` 管理指令后的结果发送方式。`source` 发回原群聊/私聊，`admin` 发到管理员私聊，`silent` 不发送结果。

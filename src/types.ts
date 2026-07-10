@@ -1,6 +1,7 @@
 import type { Awaitable, Context, Fragment, Session } from 'koishi'
 
 export type MessageMode = 'coexist' | 'exclusive' | 'command'
+export type GroupAutoReplyMode = 'all' | 'allowlist' | 'mention-only'
 export type CommandResultMode = 'source' | 'admin' | 'silent'
 export type ProcessMode = 'docker' | 'managed' | 'external'
 export type ProcessState = 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'blocked' | 'error'

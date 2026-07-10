@@ -164,6 +164,21 @@ function isAtBot(session: Session) {
   })
 }
 
+export function isMentioningBot(session: Session) {
+  const selfId = String(session.selfId || '').trim()
+  if (session.stripped?.atSelf) return true
+  if (isAtBot(session)) return true
+
+  const quote = (session as any).quote
+  const quoteUserId = firstString(
+    quote?.user?.id,
+    quote?.author?.id,
+    quote?.userId,
+    quote?.sender?.userId,
+  )
+  return !!selfId && quoteUserId === selfId
+}
+
 function nonEmptyString(value: unknown, fallback: string) {
   const normalized = typeof value === 'string' ? value.trim() : ''
   return normalized || fallback
@@ -269,7 +284,7 @@ export async function sessionToMaimMessage(
 ): Promise<MaimApiMessage> {
   const messageId = String(session.messageId || session.id || `koishi-${Date.now()}`)
   const senderInfo = buildSenderInfo(session)
-  const atBot = isAtBot(session)
+  const atBot = isMentioningBot(session)
   const forceMention = !!options.forceMention
   const mentioned = atBot || forceMention
   const replyContext = options.replyContext
@@ -373,8 +388,20 @@ export function getFallbackRouteHints(message: MaimApiMessage) {
 
 export function shouldForwardSession(session: Session, config: Config) {
   if (!session.content && !getElements(session).length) return false
-  if (config.messageMode !== 'command') return true
   const prefix = config.commandPrefix.trim()
-  if (!prefix) return true
-  return (session.content || '').trimStart().startsWith(prefix)
+  const matchesPrefix = !prefix || (session.content || '').trimStart().startsWith(prefix)
+  if (session.isDirect) {
+    if (config.messageMode !== 'command') return true
+    return matchesPrefix
+  }
+
+  if (isMentioningBot(session)) return true
+  if (config.messageMode === 'command') return matchesPrefix
+
+  if (config.groupAutoReplyMode === 'mention-only') return false
+  if (config.groupAutoReplyMode === 'allowlist') {
+    const ids = new Set((config.groupAutoReplyChannelIds || []).map(id => String(id).trim()).filter(Boolean))
+    return ids.has(String(session.channelId || '').trim()) || ids.has(String(session.guildId || '').trim())
+  }
+  return true
 }

@@ -1,5 +1,5 @@
 import { Schema } from 'koishi'
-import type { CommandResultMode, MessageLogLevel, MessageMode, ProcessMode } from './types'
+import type { CommandResultMode, GroupAutoReplyMode, MessageLogLevel, MessageMode, ProcessMode } from './types'
 
 export interface Config {
   processMode: ProcessMode
@@ -24,6 +24,8 @@ export interface Config {
   showWebuiToken: boolean
   messageMode: MessageMode
   commandPrefix: string
+  groupAutoReplyMode: GroupAutoReplyMode
+  groupAutoReplyChannelIds: string[]
   groupMessageTriggerCount: number
   directMessageTriggerCount: number
   imageDownloadEnabled: boolean
@@ -98,6 +100,12 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('command').description('命令：仅命中指令前缀时转发。'),
     ]).default('coexist').description('消息转发模式。'),
     commandPrefix: Schema.string().default('mai.ko').description('command 模式下触发 mai.ko 的文本前缀。'),
+    groupAutoReplyMode: Schema.union([
+      Schema.const('all').description('所有群聊都允许自动回复。'),
+      Schema.const('allowlist').description('仅名单内群聊允许自动回复，其他群聊只响应 @ 或回复机器人消息。'),
+      Schema.const('mention-only').description('所有群聊只响应 @ 或回复机器人消息。'),
+    ]).default('all').description('群聊自动回复范围。@ 机器人和回复机器人消息始终会强制触发。'),
+    groupAutoReplyChannelIds: Schema.array(String).role('table').default([]).description('允许自动回复的群聊 ID 名单。groupAutoReplyMode=allowlist 时生效，可填写 channelId 或 guildId。'),
     groupMessageTriggerCount: Schema.number().min(1).default(1).description('同一群聊累计达到多少条消息后批量转发并强制触发 mai.ko 思考；1 表示每条群消息都转发。'),
     directMessageTriggerCount: Schema.number().min(1).default(1).description('同一私聊累计达到多少条消息后批量转发并强制触发 mai.ko 思考；1 表示每条私信都转发。'),
     imageDownloadEnabled: Schema.boolean().default(true).description('转发图片消息前由 Koishi 下载图片并转为 mai.ko 可识别的 base64 图片段。'),

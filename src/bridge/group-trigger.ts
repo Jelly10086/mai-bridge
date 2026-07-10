@@ -20,15 +20,26 @@ export class GroupMessageTrigger {
 
   constructor(private threshold: number) {}
 
-  test(session: Session, route: KoishiRoute): GroupTriggerResult {
+  test(session: Session, route: KoishiRoute, force = false): GroupTriggerResult {
     const threshold = Math.max(1, Math.floor(this.threshold || 1))
     const entry = { session, route }
     if (threshold <= 1 || session.isDirect || !route.channelId) {
-      return { shouldForward: true, count: 1, threshold, entries: [entry] }
+      return {
+        shouldForward: true,
+        count: 1,
+        threshold,
+        entries: [entry],
+        ...(force ? { forceMention: true } : {}),
+      }
     }
 
     const key = this.createKey(route)
     const entries = [...this.pending.get(key) || [], entry]
+    if (force) {
+      this.pending.delete(key)
+      return { shouldForward: true, count: entries.length, threshold, key, entries, forceMention: true }
+    }
+
     if (entries.length >= threshold) {
       this.pending.delete(key)
       return { shouldForward: true, count: entries.length, threshold, key, entries, forceMention: true }

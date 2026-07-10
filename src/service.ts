@@ -1,6 +1,6 @@
 import { Logger, Service, type Awaitable, type Context, type Fragment, type Session } from 'koishi'
 import type { Config } from './config'
-import { getFallbackRouteHints, getRouteIdFromMaim, maimMessageToFragment, sessionToMaimMessage, shouldForwardSession } from './bridge/convert'
+import { getFallbackRouteHints, getRouteIdFromMaim, isMentioningBot, maimMessageToFragment, sessionToMaimMessage, shouldForwardSession } from './bridge/convert'
 import { MaibotDockerManager } from './bridge/docker'
 import { ExternalLogForwarder } from './bridge/external-logs'
 import { DirectMessageTrigger, GroupMessageTrigger } from './bridge/group-trigger'
@@ -288,7 +288,7 @@ export class MaibotService extends Service {
       const triggerKind = session.isDirect ? 'direct' : 'group'
       const trigger = session.isDirect
         ? this.directTrigger.test(session, route)
-        : this.groupTrigger.test(session, route)
+        : this.groupTrigger.test(session, route, isMentioningBot(session))
       if (!trigger.shouldForward) {
         this.history.rememberSession(session, route)
         if (triggerKind === 'direct') {
