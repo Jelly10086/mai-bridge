@@ -13,6 +13,51 @@ import { readWebuiToken } from './bridge/webui-token'
 import { describeFragment, describeMaimMessage, describeSegment, describeSession } from './bridge/logging'
 import type { MaimApiMessage, RuntimeStatus } from './types'
 
+function getCommandCandidateSource(session: Session) {
+  return (session.stripped?.content || session.content || '').trimStart()
+}
+
+function getCommandCandidates(session: Session) {
+  const source = getCommandCandidateSource(session)
+  const first = source.split(/\s/, 1)[0]?.trim()
+  if (!first) return []
+
+  const candidates = new Set<string>()
+  candidates.add(first)
+
+  const withoutCommonPrefix = first.replace(/^[./!！#]+/, '')
+  if (withoutCommonPrefix) candidates.add(withoutCommonPrefix)
+
+  return [...candidates]
+}
+
+function markCommandAppel(session: Session) {
+  session.stripped.hasAt = true
+  session.stripped.appel = true
+  session.stripped.atSelf = true
+  session.stripped.prefix ??= ''
+}
+
+export function markKoishiCommandSession(ctx: Context, session: Session) {
+  const commander = ctx.$commander
+  if (!commander) return false
+
+  try {
+    if (session.argv && commander.resolveCommand(session.argv)) {
+      markCommandAppel(session)
+      return true
+    }
+
+    const matched = getCommandCandidates(session).some(name => commander.resolve(name, session))
+    if (!matched) return false
+
+    markCommandAppel(session)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export class MaibotService extends Service {
   private log = new Logger('mai.ko')
   private apiKey: string
@@ -223,6 +268,11 @@ export class MaibotService extends Service {
   }
 
   async handleSession(session: Session, next: () => Awaitable<void | Fragment>): Promise<void | Fragment> {
+    if (markKoishiCommandSession(this.ctx, session)) {
+      this.log.debug(`pass koishi command: ${describeSession(session)}`)
+      return next()
+    }
+
     if (!shouldForwardSession(session, this.pluginConfig)) {
       this.log.debug(`skip koishi message: ${describeSession(session)}`)
       return next()
