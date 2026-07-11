@@ -133,4 +133,118 @@ describe('mai.ko message history', () => {
     assert.match(context.targetMessageContent, /发送者: B卡片\(20002\)/)
     assert.deepEqual(context.targetMessageImageSources, ['https://example.com/cat.png'])
   })
+
+  it('extracts reply target id from raw OneBot reply segments', () => {
+    const history = new MessageHistory(60000)
+    const groupRoute = route()
+    history.rememberSession({
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '20002',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: '123456',
+      timestamp: Date.now(),
+      username: '用户B',
+      content: '这是被回复的消息',
+      elements: h.parse('这是被回复的消息'),
+      author: {
+        name: '用户B',
+      },
+      event: {},
+      isDirect: false,
+    }, route({ userId: '20002' }))
+
+    const replySession = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: 'reply-raw-onebot',
+      timestamp: Date.now(),
+      username: '用户A',
+      content: '我回复一下',
+      elements: h.parse('我回复一下'),
+      onebot: {
+        message: [
+          {
+            type: 'reply',
+            data: {
+              id: '123456',
+            },
+          },
+          {
+            type: 'text',
+            data: {
+              text: '我回复一下',
+            },
+          },
+        ],
+      },
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+
+    const context = history.resolveReplyContext(replySession, groupRoute)
+
+    assert.equal(context.targetMessageId, '123456')
+    assert.match(context.targetMessageContent, /内容: 这是被回复的消息/)
+    assert.match(context.targetMessageContent, /用户B\(20002\): 这是被回复的消息 <- 被回复/)
+  })
+
+  it('builds quoted content from loaded OneBot messages', () => {
+    const history = new MessageHistory(60000)
+    const groupRoute = route()
+    const replySession = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      guildId: '248727194',
+      messageId: 'reply-loaded-onebot',
+      timestamp: Date.now(),
+      username: '用户A',
+      content: '这张呢',
+      elements: h.parse('这张呢'),
+      onebot: {
+        message: '[CQ:reply,id=654321]这张呢',
+      },
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const loadedQuote = history.onebotMessageToQuote({
+      message_id: 654321,
+      sender: {
+        user_id: 20002,
+        nickname: '用户B',
+        card: 'B卡片',
+      },
+      message: [
+        {
+          type: 'text',
+          data: {
+            text: '看图',
+          },
+        },
+        {
+          type: 'image',
+          data: {
+            url: 'https://example.com/quote.png',
+          },
+        },
+      ],
+    })
+
+    const context = history.resolveReplyContext(replySession, groupRoute, loadedQuote)
+
+    assert.equal(context.targetMessageId, '654321')
+    assert.equal(context.targetMessageSenderId, '20002')
+    assert.equal(context.targetMessageSenderNickname, 'B卡片')
+    assert.match(context.targetMessageContent, /发送者: B卡片\(20002\)/)
+    assert.match(context.targetMessageContent, /内容: 看图\[图片\]/)
+    assert.deepEqual(context.targetMessageImageSources, ['https://example.com/quote.png'])
+  })
 })

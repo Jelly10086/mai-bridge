@@ -340,7 +340,9 @@ export class MaibotService extends Service {
   }
 
   private async forwardSessionToMaim(session: Session, route: ReturnType<RouteRegistry['remember']>, forceMention = false) {
-    const replyContext = this.history.resolveReplyContext(session, route)
+    const replyTargetId = this.history.getReplyMessageId(session)
+    const loadedQuote = await this.loadReplyQuote(session, replyTargetId)
+    const replyContext = this.history.resolveReplyContext(session, route, loadedQuote)
     const message = await sessionToMaimMessage(session, route, this.apiKey, {
       resolveImage: (source) => this.resolveImageToBase64(source),
       replyContext,
@@ -355,6 +357,27 @@ export class MaibotService extends Service {
     const replyLog = replyContext ? ` reply=${replyContext.targetMessageId} context=${replyContext.contextCount || 0}` : ''
     const forceLog = forceMention ? ' forced=message-trigger' : ''
     this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog}${forceLog} ${describeSegment(message.message_segment)}`)
+  }
+
+  private async loadReplyQuote(session: Session, targetMessageId?: string) {
+    if (!targetMessageId) return
+    const quote = (session as any).quote
+    if (quote?.content || quote?.elements?.length) return quote
+
+    const onebot = (session as any).onebot
+    if (typeof onebot?.getMsg !== 'function') return quote
+    try {
+      const message = await onebot.getMsg(targetMessageId)
+      const loadedQuote = this.history.onebotMessageToQuote(message)
+      if (loadedQuote) {
+        this.logMessageDetail(`koishi reply quote loaded: target=${targetMessageId}`)
+        return loadedQuote
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.log.debug(`koishi reply quote load failed: target=${targetMessageId} error=${message}`)
+    }
+    return quote
   }
 
   async dispose() {

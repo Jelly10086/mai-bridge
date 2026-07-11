@@ -53,13 +53,13 @@ export class MessageHistory {
     })
   }
 
-  resolveReplyContext(session: Session, route: KoishiRoute): ReplyContext | undefined {
+  resolveReplyContext(session: Session, route: KoishiRoute, loadedQuote?: any): ReplyContext | undefined {
     const targetMessageId = this.getReplyMessageId(session)
     if (!targetMessageId) return
 
     this.cleanup()
     const scopeId = this.getScopeId(route)
-    const quote = (session as any).quote
+    const quote = loadedQuote || (session as any).quote
     const target = this.byId.get(targetMessageId)
     const recent = (this.messages.get(scopeId) || []).slice(-REPLY_CONTEXT_COUNT)
     const contextMessages = this.ensureTargetInContext(recent, target)
@@ -114,7 +114,7 @@ export class MessageHistory {
     return ['koishi', route.platform, route.botSelfId, route.guildId || '', route.channelId].join(':')
   }
 
-  private getReplyMessageId(session: Session) {
+  getReplyMessageId(session: Session) {
     const quote = (session as any).quote
     const quoteId = this.pickOptional(quote?.id, quote?.messageId)
     if (quoteId) return quoteId
@@ -123,6 +123,38 @@ export class MessageHistory {
       if (element.type !== 'quote' && element.type !== 'reply') continue
       const messageId = this.pickOptional(element.attrs.id, element.attrs.messageId, element.attrs.target)
       if (messageId) return messageId
+    }
+
+    return this.onebotReplyMessageId((session as any).onebot?.message)
+      || this.onebotReplyMessageId((session as any).event?._data?.message)
+      || this.onebotReplyMessageId((session as any).event?.onebot?.message)
+  }
+
+  onebotMessageToQuote(message: any) {
+    if (!message) return
+    const elements = this.onebotMessageElements(message.message)
+    return {
+      id: this.pickOptional(message.message_id, message.id, message.messageId),
+      messageId: this.pickOptional(message.message_id, message.id, message.messageId),
+      content: this.elementsText(elements),
+      elements,
+      user: {
+        id: this.pickOptional(message.sender?.user_id, message.user_id),
+        name: this.pickOptional(message.sender?.nickname, message.sender?.card),
+      },
+      author: {
+        id: this.pickOptional(message.sender?.user_id, message.user_id),
+        name: this.pickOptional(message.sender?.nickname, message.sender?.card),
+        nick: this.pickOptional(message.sender?.card),
+      },
+      member: {
+        nick: this.pickOptional(message.sender?.card),
+      },
+      sender: {
+        user_id: this.pickOptional(message.sender?.user_id, message.user_id),
+        nickname: this.pickOptional(message.sender?.nickname),
+        card: this.pickOptional(message.sender?.card),
+      },
     }
   }
 
@@ -187,7 +219,7 @@ export class MessageHistory {
     const sources: string[] = []
     for (const element of elements) {
       if (typeof element === 'string') continue
-      if (element.type === 'img' || element.type === 'image') {
+      if (this.isImageElement(element)) {
         const source = this.pickOptional(element.attrs.src, element.attrs.url, element.attrs.file)
         if (source) sources.push(source)
       }
@@ -202,7 +234,8 @@ export class MessageHistory {
       if (typeof element === 'string') return element
       if (element.type === 'text') return element.attrs.content || ''
       if (element.type === 'at') return `@${element.attrs.name || element.attrs.id || ''}`
-      if (element.type === 'img' || element.type === 'image') return '[图片]'
+      if (this.isImageElement(element)) return '[图片]'
+      if (this.isEmojiElement(element)) return '[表情包]'
       if (element.type === 'quote' || element.type === 'reply') return ''
       if (element.type === 'br') return '\n'
       return `[${element.type}]`
@@ -277,8 +310,114 @@ export class MessageHistory {
 
   private pickOptional(...values: unknown[]) {
     for (const value of values) {
-      const text = typeof value === 'string' ? value.trim() : ''
+      const text = typeof value === 'string'
+        ? value.trim()
+        : typeof value === 'number' || typeof value === 'bigint'
+          ? String(value).trim()
+          : ''
       if (text) return text
     }
+  }
+
+  private onebotReplyMessageId(message: unknown) {
+    if (Array.isArray(message)) {
+      for (const segment of message) {
+        if (segment?.type !== 'reply') continue
+        const id = this.pickOptional(segment.data?.id, segment.attrs?.id, segment.id)
+        if (id) return id
+      }
+      return
+    }
+
+    const source = typeof message === 'string' ? message : ''
+    const match = /\[CQ:reply,[^\]]*id=([^,\]]+)/.exec(source)
+    return match ? this.decodeCQValue(match[1]) : undefined
+  }
+
+  private onebotMessageElements(message: unknown): Array<h | string> {
+    if (Array.isArray(message)) {
+      const elements: Array<h | string> = []
+      for (const segment of message) {
+        const type = String(segment?.type || '').trim()
+        const data = segment?.data || segment?.attrs || {}
+        if (type === 'reply') continue
+        if (type === 'text') {
+          const text = this.pickOptional(data.text, data.content, segment.text)
+          if (text) elements.push(text)
+          continue
+        }
+        if (type === 'at') {
+          elements.push(`@${this.pickOptional(data.name, data.qq, data.id) || ''}`)
+          continue
+        }
+        if (type === 'image' || this.isEmojiType(type)) {
+          const source = this.pickOptional(data.url, data.file, data.src, data.path)
+          elements.push(source ? h('img', { src: source }) : `[${this.isEmojiType(type) ? '表情包' : '图片'}]`)
+          continue
+        }
+        elements.push(`[${type || 'unknown'}]`)
+      }
+      return elements
+    }
+
+    if (typeof message !== 'string') return []
+    return this.onebotStringElements(message)
+  }
+
+  private onebotStringElements(source: string): Array<h | string> {
+    const elements: Array<h | string> = []
+    const pattern = /\[CQ:([a-zA-Z0-9_-]+),([^\]]*)\]/g
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(source))) {
+      if (match.index > lastIndex) elements.push(source.slice(lastIndex, match.index))
+      const type = match[1]
+      const attrs = this.parseCQAttrs(match[2])
+      if (type === 'reply') {
+        lastIndex = pattern.lastIndex
+        continue
+      }
+      if (type === 'at') {
+        elements.push(`@${attrs.name || attrs.qq || attrs.id || ''}`)
+      } else if (type === 'image' || this.isEmojiType(type)) {
+        const src = attrs.url || attrs.file || attrs.src
+        elements.push(src ? h('img', { src }) : `[${this.isEmojiType(type) ? '表情包' : '图片'}]`)
+      } else {
+        elements.push(`[${type}]`)
+      }
+      lastIndex = pattern.lastIndex
+    }
+    if (lastIndex < source.length) elements.push(source.slice(lastIndex))
+    return elements
+  }
+
+  private parseCQAttrs(source: string) {
+    const attrs: Record<string, string> = {}
+    for (const pair of source.split(',')) {
+      const index = pair.indexOf('=')
+      if (index <= 0) continue
+      attrs[pair.slice(0, index)] = this.decodeCQValue(pair.slice(index + 1))
+    }
+    return attrs
+  }
+
+  private decodeCQValue(value: string) {
+    return value
+      .replace(/&#44;/g, ',')
+      .replace(/&#91;/g, '[')
+      .replace(/&#93;/g, ']')
+      .replace(/&amp;/g, '&')
+  }
+
+  private isImageElement(element: h) {
+    return element.type === 'img' || element.type === 'image'
+  }
+
+  private isEmojiElement(element: h) {
+    return this.isEmojiType(element.type)
+  }
+
+  private isEmojiType(type: string) {
+    return ['emoji', 'face', 'mface', 'marketface', 'sticker', 'sface', 'bface'].includes(type)
   }
 }
