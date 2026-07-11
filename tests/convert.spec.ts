@@ -442,6 +442,143 @@ describe('mai.ko convert', () => {
     })
   })
 
+  it('downloads inbound mface urls as base64 emoji segments', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      messageId: 'msg-mface',
+      timestamp: 1000,
+      content: '<mface url="https://example.com/e.webp"/>',
+      elements: [h('mface', { url: 'https://example.com/e.webp' })],
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const resolveImage = async () => Buffer.from('emoji').toString('base64')
+    const message = await (sessionToMaimMessage as any)(session, route, 'key', { resolveImage })
+
+    assert.deepEqual(message.message_segment, {
+      type: 'emoji',
+      data: 'ZW1vamk=',
+    })
+    assert.deepEqual(message.message_info.format_info?.content_format, ['text', 'image', 'emoji'])
+    assert.deepEqual(message.message_info.format_info?.accept_format, ['text', 'image', 'emoji'])
+  })
+
+  it('treats image elements with sticker hints as emoji segments', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      messageId: 'msg-sticker',
+      timestamp: 1000,
+      content: '<img subType="sticker" src="base64://aGVsbG8="/>',
+      elements: [h('img', { subType: 'sticker', src: 'base64://aGVsbG8=' })],
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key')
+
+    assert.deepEqual(message.message_segment, {
+      type: 'emoji',
+      data: 'aGVsbG8=',
+    })
+  })
+
+  it('treats NapCat image summary emoji hints as emoji segments', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      messageId: 'msg-napcat-summary',
+      timestamp: 1000,
+      content: '<img summary="[动画表情]" src="base64://aGVsbG8="/>',
+      elements: [h('img', { summary: '[动画表情]', src: 'base64://aGVsbG8=' })],
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key')
+
+    assert.deepEqual(message.message_segment, {
+      type: 'emoji',
+      data: 'aGVsbG8=',
+    })
+  })
+
+  it('uses the child image source of face elements as emoji data', async () => {
+    const session = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '10001',
+      channelId: '248727194',
+      messageId: 'msg-face-child',
+      timestamp: 1000,
+      content: '<face id="14"><img src="https://example.com/face.png"/></face>',
+      elements: [h('face', { id: '14', name: '微笑' }, h('img', { src: 'https://example.com/face.png' }))],
+      author: {},
+      event: {},
+      isDirect: false,
+    }
+    const route = {
+      routeId: 'route-1',
+      session,
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: '248727194',
+      userId: '10001',
+      isDirect: false,
+      updatedAt: 1,
+    }
+
+    const message = await (sessionToMaimMessage as any)(session, route, 'key', {
+      resolveImage: async () => Buffer.from('face').toString('base64'),
+    })
+
+    assert.deepEqual(message.message_segment, {
+      type: 'emoji',
+      data: 'ZmFjZQ==',
+    })
+  })
+
   it('downgrades inbound image urls to text when download fails', async () => {
     const session = {
       platform: 'onebot',

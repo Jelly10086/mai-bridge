@@ -5,6 +5,31 @@ import type { KoishiRoute, MaimApiMessage, MaimInfoBase, MaimSeg } from '../type
 const PLATFORM = 'koishi'
 
 type SendFragment = string | h
+type BinarySegmentKind = 'image' | 'emoji'
+
+const EMOJI_ELEMENT_TYPES = new Set([
+  'emoji',
+  'face',
+  'mface',
+  'marketface',
+  'sticker',
+  'sface',
+  'bface',
+])
+
+const EMOJI_HINT_KEYS = [
+  'type',
+  'subtype',
+  'subType',
+  'sub_type',
+  'summary',
+  'title',
+  'name',
+  'kind',
+  'category',
+  'mediaType',
+  'origin',
+]
 
 export interface SessionToMaimOptions {
   resolveImage?: (source: string) => Awaitable<string | undefined>
@@ -46,26 +71,75 @@ function stringifyUnknown(element: h) {
   return attrs ? `[${element.type} ${attrs}]` : `[${element.type}]`
 }
 
-async function imageSegFromSource(source: unknown, options: SessionToMaimOptions): Promise<MaimSeg | undefined> {
+function segmentTypeFromElement(element: h): BinarySegmentKind {
+  if (EMOJI_ELEMENT_TYPES.has(element.type)) return 'emoji'
+
+  if (element.type !== 'img' && element.type !== 'image') return 'image'
+  for (const key of EMOJI_HINT_KEYS) {
+    const value = String(element.attrs?.[key] ?? '').toLowerCase()
+    if (value && /emoji|sticker|face|mface|marketface|sface|bface|表情/.test(value)) return 'emoji'
+  }
+  return 'image'
+}
+
+function mediaSourceFromElement(element: h): string | undefined {
+  const attrs = element.attrs || {}
+  const source = firstString(
+    attrs.src,
+    attrs.url,
+    attrs.file,
+    attrs.path,
+    attrs.image,
+    attrs.content,
+  )
+  if (source) return source
+
+  const base64 = firstString(attrs.base64)
+  if (base64) return `base64://${base64}`
+
+  const data = firstString(attrs.data)
+  if (data && (/^(?:https?:\/\/|data:image\/|base64:\/\/)/i.test(data) || /^[A-Za-z0-9+/=\s]{32,}$/.test(data))) {
+    return data
+  }
+
+  const children = (element as any).children
+  if (Array.isArray(children)) {
+    for (const child of children) {
+      if (child?.type !== 'img' && child?.type !== 'image') continue
+      const childSource: string | undefined = mediaSourceFromElement(child)
+      if (childSource) return childSource
+    }
+  }
+}
+
+async function binarySegFromSource(
+  source: unknown,
+  options: SessionToMaimOptions,
+  type: BinarySegmentKind,
+): Promise<MaimSeg | undefined> {
   const src = typeof source === 'string' ? source.trim() : ''
   if (!src) return
 
   const dataUrl = /^data:image\/[^;]+;base64,([A-Za-z0-9+/=\s]+)$/i.exec(src)
   if (dataUrl) {
-    return { type: 'image', data: dataUrl[1].replace(/\s/g, '') }
+    return { type, data: dataUrl[1].replace(/\s/g, '') }
   }
 
   const base64Url = /^base64:\/\/([A-Za-z0-9+/=\s]+)$/i.exec(src)
   if (base64Url) {
-    return { type: 'image', data: base64Url[1].replace(/\s/g, '') }
+    return { type, data: base64Url[1].replace(/\s/g, '') }
   }
 
   if (/^https?:\/\//i.test(src) && options.resolveImage) {
     const base64 = await options.resolveImage(src)
-    if (base64) return { type: 'image', data: base64 }
+    if (base64) return { type, data: base64 }
   }
 
-  return textSeg(`[图片: ${src}]`)
+  return textSeg(`[${type === 'emoji' ? '表情包' : '图片'}: ${src}]`)
+}
+
+async function imageSegFromSource(source: unknown, options: SessionToMaimOptions): Promise<MaimSeg | undefined> {
+  return binarySegFromSource(source, options, 'image')
 }
 
 async function elementToSeg(element: h, options: SessionToMaimOptions): Promise<MaimSeg | undefined> {
@@ -78,9 +152,10 @@ async function elementToSeg(element: h, options: SessionToMaimOptions): Promise<
   if (element.type === 'at') {
     return atSeg(element)
   }
-  if (element.type === 'img' || element.type === 'image') {
-    const src = element.attrs.src || element.attrs.url || element.attrs.file
-    return await imageSegFromSource(src, options) || textSeg(stringifyUnknown(element))
+  if (element.type === 'img' || element.type === 'image' || EMOJI_ELEMENT_TYPES.has(element.type)) {
+    const type = segmentTypeFromElement(element)
+    const src = mediaSourceFromElement(element)
+    return await binarySegFromSource(src, options, type) || textSeg(stringifyUnknown(element))
   }
   if (element.type === 'br') {
     return textSeg('\n')
@@ -330,8 +405,8 @@ export async function sessionToMaimMessage(
         is_mentioned: mentioned,
       },
       format_info: {
-        content_format: ['text', 'image'],
-        accept_format: ['text', 'image'],
+        content_format: ['text', 'image', 'emoji'],
+        accept_format: ['text', 'image', 'emoji'],
       },
     },
     message_segment: await normalizeSegments(getElements(session), options),

@@ -33,6 +33,7 @@ function previewSegment(segment?: MaimSeg): string {
     return `@${String(data ?? '')}`
   }
   if (segment.type === 'image' || segment.type === 'img') return '[image]'
+  if (segment.type === 'emoji') return '[emoji]'
   return `[${segment.type}]`
 }
 
