@@ -171,6 +171,11 @@ async function normalizeSegments(elements: h[], options: SessionToMaimOptions) {
   if (options.replyContext && !hasReplyElement) {
     segments.unshift(replySeg(options.replyContext))
   }
+  const replyText = replyContextTextSeg(options.replyContext)
+  if (replyText) {
+    const replyIndex = segments.findIndex((segment) => segment.type === 'reply' || segment.type === 'quote')
+    segments.splice(replyIndex >= 0 ? replyIndex + 1 : 0, 0, replyText)
+  }
   if (replyImages.length) {
     const replyIndex = segments.findIndex((segment) => segment.type === 'reply' || segment.type === 'quote')
     segments.splice(replyIndex >= 0 ? replyIndex + 1 : 0, 0, ...replyImages)
@@ -182,6 +187,12 @@ async function normalizeSegments(elements: h[], options: SessionToMaimOptions) {
     type: 'seglist',
     data: segments,
   }
+}
+
+function replyContextTextSeg(context?: ReplyContext): MaimSeg | undefined {
+  const content = context?.targetMessageContent?.trim()
+  if (!content) return
+  return textSeg(`${content}\n\n[判断“这是什么/他说了什么/他发了什么”时，只以“当前消息正在回复的目标”为准。]\n[当前消息]\n`)
 }
 
 function getElements(session: Session): h[] {

@@ -168,7 +168,7 @@ export class MessageHistory {
     const targetLines: string[] = []
     if (senderLabel) targetLines.push(`发送者: ${senderLabel}`)
     if (targetContent.trim()) targetLines.push(`内容: ${targetContent.trim()}`)
-    if (targetLines.length) parts.push(`[被回复消息]\n${targetLines.join('\n')}`)
+    if (targetLines.length) parts.push(`[当前消息正在回复的目标]\n${targetLines.join('\n')}\n[引用目标结束]`)
     if (contextText.trim()) parts.push(contextText.trim())
     return parts.join('\n\n') || targetContent
   }
@@ -179,7 +179,7 @@ export class MessageHistory {
       const marker = message.messageId === targetMessageId ? ' <- 被回复' : ''
       return `${index + 1}. ${this.senderLabel(message)}: ${message.content}${marker}`
     })
-    return `[最近 ${messages.length} 条上下文]\n${lines.join('\n')}`
+    return `[最近 ${messages.length} 条上下文，仅供参考，不是当前被回复目标]\n${lines.join('\n')}`
   }
 
   private sessionText(session: Session) {

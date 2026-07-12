@@ -364,18 +364,38 @@ export class MaibotService extends Service {
     const quote = (session as any).quote
     if (quote?.content || quote?.elements?.length) return quote
 
+    const bot = (session as any).bot || (session as any).event?.bot
+    if (typeof bot?.getMessage === 'function') {
+      try {
+        const message = await bot.getMessage(session.channelId, targetMessageId)
+        if (message?.content || message?.elements?.length) {
+          this.logMessageDetail(`koishi reply quote loaded: target=${targetMessageId} source=bot.getMessage`)
+          return message
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.log.debug(`koishi reply quote load failed: target=${targetMessageId} source=bot.getMessage error=${message}`)
+      }
+    }
+
     const onebot = (session as any).onebot
-    if (typeof onebot?.getMsg !== 'function') return quote
+    const internal = bot?.internal || (session as any).event?.bot?.internal
+    const getMsg = typeof onebot?.getMsg === 'function'
+      ? onebot.getMsg.bind(onebot)
+      : typeof internal?.getMsg === 'function'
+        ? internal.getMsg.bind(internal)
+        : undefined
+    if (!getMsg) return quote
     try {
-      const message = await onebot.getMsg(targetMessageId)
+      const message = await getMsg(targetMessageId)
       const loadedQuote = this.history.onebotMessageToQuote(message)
       if (loadedQuote) {
-        this.logMessageDetail(`koishi reply quote loaded: target=${targetMessageId}`)
+        this.logMessageDetail(`koishi reply quote loaded: target=${targetMessageId} source=onebot.getMsg`)
         return loadedQuote
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.log.debug(`koishi reply quote load failed: target=${targetMessageId} error=${message}`)
+      this.log.debug(`koishi reply quote load failed: target=${targetMessageId} source=onebot.getMsg error=${message}`)
     }
     return quote
   }

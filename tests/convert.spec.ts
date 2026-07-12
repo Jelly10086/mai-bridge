@@ -675,7 +675,7 @@ describe('mai.ko convert', () => {
     const message = await (sessionToMaimMessage as any)(session, route, 'key', {
       replyContext: {
         targetMessageId: 'bot-msg-1',
-        targetMessageContent: '[被回复消息]\n这个是什么\n\n[最近 5 条上下文]\n1. mai.ko: 这个是什么 <- 被回复',
+        targetMessageContent: '[当前消息正在回复的目标]\n这个是什么\n[引用目标结束]\n\n[最近 5 条上下文，仅供参考，不是当前被回复目标]\n1. mai.ko: 这个是什么 <- 被回复',
         targetMessageSenderId: '3876469841',
         targetMessageSenderNickname: 'mai.ko',
         contextCount: 5,
@@ -691,11 +691,15 @@ describe('mai.ko convert', () => {
           type: 'reply',
           data: {
             target_message_id: 'bot-msg-1',
-            target_message_content: '[被回复消息]\n这个是什么\n\n[最近 5 条上下文]\n1. mai.ko: 这个是什么 <- 被回复',
+            target_message_content: '[当前消息正在回复的目标]\n这个是什么\n[引用目标结束]\n\n[最近 5 条上下文，仅供参考，不是当前被回复目标]\n1. mai.ko: 这个是什么 <- 被回复',
             target_message_sender_id: '3876469841',
             target_message_sender_nickname: 'mai.ko',
             koishi_context_count: 5,
           },
+        },
+        {
+          type: 'text',
+          data: '[当前消息正在回复的目标]\n这个是什么\n[引用目标结束]\n\n[最近 5 条上下文，仅供参考，不是当前被回复目标]\n1. mai.ko: 这个是什么 <- 被回复\n\n[判断“这是什么/他说了什么/他发了什么”时，只以“当前消息正在回复的目标”为准。]\n[当前消息]\n',
         },
         {
           type: 'text',
@@ -734,7 +738,7 @@ describe('mai.ko convert', () => {
       resolveImage: async () => Buffer.from('cat').toString('base64'),
       replyContext: {
         targetMessageId: 'image-msg-1',
-        targetMessageContent: '[被回复消息]\n发送者: 用户B(20002)\n内容: [图片]',
+        targetMessageContent: '[当前消息正在回复的目标]\n发送者: 用户B(20002)\n内容: [图片]\n[引用目标结束]',
         targetMessageSenderId: '20002',
         targetMessageSenderNickname: '用户B',
         targetMessageImageSources: ['https://example.com/cat.png'],
@@ -749,7 +753,7 @@ describe('mai.ko convert', () => {
           type: 'reply',
           data: {
             target_message_id: 'image-msg-1',
-            target_message_content: '[被回复消息]\n发送者: 用户B(20002)\n内容: [图片]',
+            target_message_content: '[当前消息正在回复的目标]\n发送者: 用户B(20002)\n内容: [图片]\n[引用目标结束]',
             target_message_sender_id: '20002',
             target_message_sender_nickname: '用户B',
             koishi_context_count: 1,
@@ -758,6 +762,10 @@ describe('mai.ko convert', () => {
         {
           type: 'image',
           data: 'Y2F0',
+        },
+        {
+          type: 'text',
+          data: '[当前消息正在回复的目标]\n发送者: 用户B(20002)\n内容: [图片]\n[引用目标结束]\n\n[判断“这是什么/他说了什么/他发了什么”时，只以“当前消息正在回复的目标”为准。]\n[当前消息]\n',
         },
         {
           type: 'text',
