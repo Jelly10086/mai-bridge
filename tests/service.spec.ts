@@ -177,4 +177,31 @@ describe('mai.ko service reply quote loading', () => {
     assert.equal(quote.sender.user_id, '20002')
     assert.match(logs.join('\n'), /source=onebot\.getMsg/)
   })
+
+  it('drops stale quote elements before sending to Koishi', () => {
+    const history = new MessageHistory(60000)
+    const currentRoute = {
+      routeId: 'koishi:onebot:3876469841::private:1970871278:1970871278',
+      session: {},
+      botSelfId: '3876469841',
+      platform: 'onebot',
+      channelId: 'private:1970871278',
+      userId: '1970871278',
+      isDirect: true,
+      updatedAt: Date.now(),
+    }
+    const service = Object.assign(Object.create(MaibotService.prototype), {
+      history,
+      log: {
+        debug: () => {},
+      },
+    })
+
+    const fragment = MaibotService.prototype.sanitizeReplyQuotes.call(service, [
+      h('quote', { id: 'missing-message' }),
+      '还在躺着呢',
+    ], currentRoute)
+
+    assert.deepEqual(fragment, ['还在躺着呢'])
+  })
 })

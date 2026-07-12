@@ -826,4 +826,29 @@ describe('mai.ko convert', () => {
 
     assert.equal(registry.latest({ isDirect: true })?.routeId, directRoute.routeId)
   })
+
+  it('does not match group route when resolving a direct route for the same user', () => {
+    const registry = new RouteRegistry(60000)
+    const groupSession: any = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '1970871278',
+      channelId: '833617830',
+      guildId: '833617830',
+      isDirect: false,
+    }
+    const directSession: any = {
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '1970871278',
+      channelId: 'private:1970871278',
+      isDirect: true,
+    }
+
+    registry.remember(directSession)
+    registry.remember(groupSession)
+
+    assert.equal(registry.find(undefined, '1970871278', '3876469841', { isDirect: true })?.isDirect, true)
+    assert.equal(registry.find('833617830', '1970871278', '3876469841', { isDirect: false })?.isDirect, false)
+  })
 })

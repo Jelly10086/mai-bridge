@@ -53,6 +53,14 @@ export class MessageHistory {
     })
   }
 
+  hasMessage(route: KoishiRoute, messageId: string) {
+    const id = String(messageId || '').trim()
+    if (!id) return false
+    this.cleanup()
+    const message = this.byId.get(id)
+    return !!message && message.scopeId === this.getScopeId(route)
+  }
+
   resolveReplyContext(session: Session, route: KoishiRoute, loadedQuote?: any): ReplyContext | undefined {
     const targetMessageId = this.getReplyMessageId(session)
     if (!targetMessageId) return

@@ -247,4 +247,34 @@ describe('mai.ko message history', () => {
     assert.match(context.targetMessageContent, /内容: 看图\[图片\]/)
     assert.deepEqual(context.targetMessageImageSources, ['https://example.com/quote.png'])
   })
+
+  it('checks message ids inside the current route scope only', () => {
+    const history = new MessageHistory(60000)
+    const groupRoute = route()
+    const directRoute = route({
+      routeId: 'koishi:onebot:3876469841::private:1970871278:1970871278',
+      channelId: 'private:1970871278',
+      guildId: undefined,
+      userId: '1970871278',
+      isDirect: true,
+    })
+
+    history.rememberSession({
+      platform: 'onebot',
+      selfId: '3876469841',
+      userId: '1970871278',
+      channelId: 'private:1970871278',
+      messageId: 'private-msg-1',
+      timestamp: Date.now(),
+      username: 'Soyo霖',
+      content: '私聊消息',
+      elements: h.parse('私聊消息'),
+      author: {},
+      event: {},
+      isDirect: true,
+    }, directRoute)
+
+    assert.equal(history.hasMessage(directRoute, 'private-msg-1'), true)
+    assert.equal(history.hasMessage(groupRoute, 'private-msg-1'), false)
+  })
 })

@@ -35,10 +35,11 @@ export class RouteRegistry {
     return route
   }
 
-  find(channelId?: string, userId?: string, selfId?: string) {
+  find(channelId?: string, userId?: string, selfId?: string, options: { isDirect?: boolean } = {}) {
     this.cleanup()
     const routes = [...this.routes.values()].sort((a, b) => b.updatedAt - a.updatedAt)
     return routes.find((route) => {
+      if (options.isDirect !== undefined && route.isDirect !== options.isDirect) return false
       if (selfId && route.botSelfId !== selfId) return false
       if (channelId && route.channelId !== channelId) return false
       if (userId && route.userId !== userId) return false

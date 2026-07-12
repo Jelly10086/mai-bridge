@@ -735,12 +735,7 @@ export class MaibotService extends Service {
 
     const routeId = getRouteIdFromMaim(message)
     const hints = getFallbackRouteHints(message)
-    const route = this.routes.get(routeId)
-      || this.routes.find(hints.channelId, hints.userId, hints.selfId)
-      || (hints.userId ? this.routes.find(undefined, hints.userId, hints.selfId) : undefined)
-      || (hints.channelId ? this.routes.find(hints.channelId, undefined, hints.selfId) : undefined)
-      || (hints.selfId ? this.routes.latest({ selfId: hints.selfId, isDirect: hints.isDirect }) : undefined)
-      || this.routes.latest({ isDirect: hints.isDirect })
+    const route = this.resolveMaimRoute(routeId, hints)
     if (!route) {
       this.bridge.routeMissed += 1
       this.bridge.lastError = `cannot route mai.ko message ${message.message_info.message_id}`
@@ -749,7 +744,7 @@ export class MaibotService extends Service {
     }
 
     try {
-      const fragment = maimMessageToFragment(message)
+      const fragment = this.sanitizeReplyQuotes(maimMessageToFragment(message), route)
       this.logMessageDetail(`maimai -> koishi sending: route=${route.routeId} ${describeFragment(fragment)}`)
       const sentIds = await route.session.send(fragment)
       const actualId = sentIds?.[0]
@@ -776,5 +771,35 @@ export class MaibotService extends Service {
       this.bridge.lastError = errorMessage
       this.log.warn(`maimai -> koishi failed: msg=${message.message_info.message_id} error=${errorMessage}`)
     }
+  }
+
+  private resolveMaimRoute(routeId: string | undefined, hints: ReturnType<typeof getFallbackRouteHints>) {
+    if (routeId) return this.routes.get(routeId)
+
+    if (hints.isDirect) {
+      if (hints.userId) return this.routes.find(undefined, hints.userId, hints.selfId, { isDirect: true })
+      return this.routes.latest({ selfId: hints.selfId, isDirect: true })
+        || this.routes.latest({ isDirect: true })
+    }
+
+    if (!hints.channelId) return
+    return this.routes.find(hints.channelId, hints.userId, hints.selfId, { isDirect: false })
+      || this.routes.find(hints.channelId, undefined, hints.selfId, { isDirect: false })
+  }
+
+  private sanitizeReplyQuotes(fragment: Fragment, route: ReturnType<RouteRegistry['remember']>): Fragment {
+    if (Array.isArray(fragment)) {
+      return fragment
+        .map(item => this.sanitizeReplyQuotes(item, route))
+        .filter(item => item !== '') as h[]
+    }
+    if (typeof fragment === 'string' || !fragment) return fragment
+    if (fragment.type !== 'quote' && fragment.type !== 'reply') return fragment
+
+    const id = String(fragment.attrs.id || fragment.attrs.messageId || fragment.attrs.target || '').trim()
+    if (id && this.history.hasMessage(route, id)) return fragment
+
+    this.log.debug(`maimai -> koishi dropped stale quote: route=${route.routeId} quote=${id || '-'}`)
+    return ''
   }
 }
