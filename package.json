@@ -21,7 +21,6 @@
     "out",
     "dist",
     "client",
-    "src",
     "patches",
     "deploy",
     "scripts"
