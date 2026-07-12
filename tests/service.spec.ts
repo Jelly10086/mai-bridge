@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { strict as assert } from 'assert'
+import { Argv, h } from 'koishi'
 
 const { MaibotService, markKoishiCommandSession } = require('../src/service') as any
 const { MessageHistory } = require('../src/bridge/history') as any
@@ -17,11 +18,17 @@ function session(content: string) {
   }
 }
 
-function context(names: string[]) {
+function context(names: string[], options: { requireAt?: boolean } = {}) {
   return {
+    bail: (_event: string, content: string) => Argv.parse(content),
     $commander: {
-      resolve: (name: string) => names.includes(name),
-      resolveCommand: () => false,
+      resolveCommand: (argv: any) => {
+        const name = argv.tokens?.[0]?.content
+        if (!names.includes(name)) return
+        if (options.requireAt && !argv.session.stripped.atSelf) return
+        argv.command = { name }
+        return argv.command
+      },
     },
   }
 }
@@ -48,12 +55,47 @@ describe('mai.ko service command passthrough', () => {
     assert.equal(currentSession.stripped.atSelf, true)
   })
 
+  it('recognizes commands that require bot mention', () => {
+    const currentSession = {
+      ...session('<at id="3876469841"/> 猜 24点'),
+      selfId: '3876469841',
+      elements: [
+        h('at', { id: '3876469841' }),
+        h('text', { content: ' 猜 24点' }),
+      ],
+    }
+
+    const matched = markKoishiCommandSession(context(['猜'], { requireAt: true }), currentSession)
+
+    assert.equal(matched, true)
+    assert.equal(currentSession.stripped.hasAt, true)
+    assert.equal(currentSession.stripped.appel, true)
+    assert.equal(currentSession.stripped.atSelf, true)
+  })
+
   it('does not mark normal chat messages', () => {
     const currentSession = session('普通聊天')
 
     const matched = markKoishiCommandSession(context(['help']), currentSession)
 
     assert.equal(matched, false)
+    assert.equal(currentSession.stripped.atSelf, false)
+  })
+
+  it('does not block mentioned normal chat messages', () => {
+    const currentSession = {
+      ...session('<at id="3876469841"/> 你好'),
+      selfId: '3876469841',
+      elements: [
+        h('at', { id: '3876469841' }),
+        h('text', { content: ' 你好' }),
+      ],
+    }
+
+    const matched = markKoishiCommandSession(context(['猜']), currentSession)
+
+    assert.equal(matched, false)
+    assert.equal(currentSession.stripped.appel, false)
     assert.equal(currentSession.stripped.atSelf, false)
   })
 })

@@ -1,4 +1,4 @@
-import { Logger, Service, type Awaitable, type Context, type Fragment, type Session } from 'koishi'
+import { Argv, h, Logger, Service, type Awaitable, type Context, type Fragment, type Session } from 'koishi'
 import type { Config } from './config'
 import { getFallbackRouteHints, getRouteIdFromMaim, isMentioningBot, maimMessageToFragment, sessionToMaimMessage, shouldForwardSession } from './bridge/convert'
 import { MaibotDockerManager } from './bridge/docker'
@@ -13,22 +13,63 @@ import { readWebuiToken } from './bridge/webui-token'
 import { describeFragment, describeMaimMessage, describeSegment, describeSession } from './bridge/logging'
 import type { MaimApiMessage, RuntimeStatus } from './types'
 
-function getCommandCandidateSource(session: Session) {
-  return (session.stripped?.content || session.content || '').trimStart()
+function getCommandCandidateSources(session: Session) {
+  return uniqueStrings([
+    session.stripped?.content,
+    session.content,
+    getCommandSourceWithoutLeadingSelfAt(session),
+  ].map(value => String(value || '').trimStart()).filter(Boolean))
 }
 
-function getCommandCandidates(session: Session) {
-  const source = getCommandCandidateSource(session)
-  const first = source.split(/\s/, 1)[0]?.trim()
-  if (!first) return []
+function getCommandParseSources(session: Session) {
+  const sources: string[] = []
 
-  const candidates = new Set<string>()
-  candidates.add(first)
+  for (const source of getCommandCandidateSources(session)) {
+    sources.push(source)
 
-  const withoutCommonPrefix = first.replace(/^[./!！#]+/, '')
-  if (withoutCommonPrefix) candidates.add(withoutCommonPrefix)
+    const withoutCommonPrefix = source.replace(/^[./!！#]+/, '')
+    if (withoutCommonPrefix && withoutCommonPrefix !== source) sources.push(withoutCommonPrefix)
+  }
 
-  return [...candidates]
+  return uniqueStrings(sources)
+}
+
+function getCommandSourceWithoutLeadingSelfAt(session: Session) {
+  const selfId = String(session.selfId || '').trim()
+  if (!selfId) return ''
+  const existing = (session as any).elements
+  const elements = Array.isArray(existing) ? existing : h.parse(session.content || '')
+  const parts: string[] = []
+  let leading = true
+
+  for (const element of elements) {
+    if (typeof element === 'string') {
+      const text = leading ? element.trimStart() : element
+      if (!text) continue
+      leading = false
+      parts.push(text)
+      continue
+    }
+
+    if (leading && (element.type === 'quote' || element.type === 'reply')) continue
+    if (leading && element.type === 'at') {
+      const id = String(element.attrs.id || element.attrs.userId || element.attrs.qq || '').trim()
+      if (id === selfId) continue
+    }
+
+    if (element.type === 'text') {
+      const text = leading ? String(element.attrs.content || '').trimStart() : String(element.attrs.content || '')
+      if (!text) continue
+      leading = false
+      parts.push(text)
+      continue
+    }
+
+    leading = false
+    parts.push(String(element || ''))
+  }
+
+  return parts.join('').trimStart()
 }
 
 function markCommandAppel(session: Session) {
@@ -38,9 +79,31 @@ function markCommandAppel(session: Session) {
   session.stripped.prefix ??= ''
 }
 
+function snapshotStripped(session: Session) {
+  return session.stripped && { ...session.stripped }
+}
+
+function restoreStripped(session: Session, stripped?: Session['stripped']) {
+  if (!stripped) return
+  Object.assign(session.stripped, stripped)
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)]
+}
+
+function parseCommandSource(ctx: Context, session: Session, source: string) {
+  const argv = ctx.bail?.('before-parse', source, session) || Argv.parse(source)
+  if (!argv) return
+  argv.root = true
+  argv.session = session
+  return argv
+}
+
 export function markKoishiCommandSession(ctx: Context, session: Session) {
   const commander = ctx.$commander
   if (!commander) return false
+  const originalStripped = snapshotStripped(session)
 
   try {
     if (session.argv && commander.resolveCommand(session.argv)) {
@@ -48,12 +111,19 @@ export function markKoishiCommandSession(ctx: Context, session: Session) {
       return true
     }
 
-    const matched = getCommandCandidates(session).some(name => commander.resolve(name, session))
-    if (!matched) return false
+    for (const source of getCommandParseSources(session)) {
+      markCommandAppel(session)
+      const argv = parseCommandSource(ctx, session, source)
+      if (!argv || !commander.resolveCommand(argv)) continue
 
-    markCommandAppel(session)
-    return true
+      ;(session as any).argv = argv
+      return true
+    }
+
+    restoreStripped(session, originalStripped)
+    return false
   } catch {
+    restoreStripped(session, originalStripped)
     return false
   }
 }
