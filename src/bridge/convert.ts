@@ -464,13 +464,10 @@ function segToFragment(segment: MaimSeg): Fragment {
     return String(segment.data ?? '')
   }
   if (segment.type === 'image' || segment.type === 'img') {
-    const src = String(segment.data ?? '')
-    if (!src) return ''
-    const normalized = /^(https?:|file:|data:)/.test(src) ? src : `data:image/png;base64,${src}`
-    return h('img', { src: normalized })
+    return imageFragment(segment.data, 'image/png')
   }
   if (segment.type === 'emoji') {
-    return String(segment.data ?? '')
+    return imageFragment(segment.data, 'image/gif', true) || String(segment.data ?? '')
   }
   if (segment.type === 'at' || segment.type === 'mention') {
     return atFragment(segment)
@@ -479,6 +476,33 @@ function segToFragment(segment: MaimSeg): Fragment {
     return quoteFragment(segment)
   }
   return `[${segment.type}]${typeof segment.data === 'string' ? segment.data : JSON.stringify(segment.data)}`
+}
+
+function imageFragment(data: unknown, fallbackMime: string, requireBase64 = false): Fragment {
+  const source = String(data ?? '').trim()
+  if (!source) return ''
+
+  if (/^(https?:|file:|data:image\/)/i.test(source)) {
+    return h('img', { src: source })
+  }
+
+  const base64 = source.replace(/\s/g, '')
+  if (requireBase64 && !isBase64Data(base64)) return ''
+  return h('img', { src: `data:${imageMimeFromBase64(base64, fallbackMime)};base64,${base64}` })
+}
+
+function isBase64Data(value: string) {
+  return value.length >= 16
+    && value.length % 4 === 0
+    && /^[A-Za-z0-9+/]+={0,2}$/.test(value)
+}
+
+function imageMimeFromBase64(value: string, fallback: string) {
+  if (value.startsWith('iVBORw0KGgo')) return 'image/png'
+  if (value.startsWith('R0lGOD')) return 'image/gif'
+  if (value.startsWith('/9j/')) return 'image/jpeg'
+  if (value.startsWith('UklGR')) return 'image/webp'
+  return fallback
 }
 
 export function maimMessageToFragment(message: MaimApiMessage): Fragment {

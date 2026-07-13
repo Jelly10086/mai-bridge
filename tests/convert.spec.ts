@@ -54,6 +54,47 @@ describe('mai.ko convert', () => {
     assert.deepEqual(fragment, h('img', { src: 'https://example.com/a.png' }))
   })
 
+  it('converts binary maim emoji segments to koishi img elements', () => {
+    const data = 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+    const fragment = maimMessageToFragment({
+      message_info: {
+        platform: 'koishi',
+        message_id: '1',
+        time: 1,
+      },
+      message_segment: {
+        type: 'emoji',
+        data,
+      },
+      message_dim: {
+        api_key: 'key',
+        platform: 'koishi',
+      },
+    })
+
+    assert.deepEqual(fragment, h('img', { src: `data:image/gif;base64,${data}` }))
+  })
+
+  it('keeps non-binary maim emoji segments as text', () => {
+    const fragment = maimMessageToFragment({
+      message_info: {
+        platform: 'koishi',
+        message_id: '1',
+        time: 1,
+      },
+      message_segment: {
+        type: 'emoji',
+        data: '[表情]',
+      },
+      message_dim: {
+        api_key: 'key',
+        platform: 'koishi',
+      },
+    })
+
+    assert.equal(fragment, '[表情]')
+  })
+
   it('converts maim reply segments to koishi quote elements', () => {
     const fragment = maimMessageToFragment({
       message_info: {
