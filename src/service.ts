@@ -17,7 +17,7 @@ function getCommandCandidateSources(session: Session) {
   return uniqueStrings([
     session.stripped?.content,
     session.content,
-    getCommandSourceWithoutLeadingSelfAt(session),
+    getMessageSourceWithoutLeadingSelfAt(session),
   ].map(value => String(value || '').trimStart()).filter(Boolean))
 }
 
@@ -34,7 +34,7 @@ function getCommandParseSources(session: Session) {
   return uniqueStrings(sources)
 }
 
-function getCommandSourceWithoutLeadingSelfAt(session: Session) {
+function getMessageSourceWithoutLeadingSelfAt(session: Session) {
   const selfId = String(session.selfId || '').trim()
   if (!selfId) return ''
   const existing = (session as any).elements
@@ -79,6 +79,19 @@ function markCommandAppel(session: Session) {
   session.stripped.prefix ??= ''
 }
 
+export function isMaibotCommandSession(session: Session, config: Config) {
+  const source = getMessageSourceWithoutLeadingSelfAt(session)
+    || String(session.stripped?.content || session.content || '').trimStart()
+  const prefixes = Array.isArray(config.maibotCommandPrefixes)
+    ? config.maibotCommandPrefixes
+    : ['/']
+
+  return prefixes
+    .map(prefix => String(prefix || '').trim())
+    .filter(Boolean)
+    .some(prefix => source.startsWith(prefix))
+}
+
 function snapshotStripped(session: Session) {
   return session.stripped && { ...session.stripped }
 }
@@ -92,12 +105,24 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values)]
 }
 
-function parseCommandSource(ctx: Context, session: Session, source: string) {
-  const argv = ctx.bail?.('before-parse', source, session) || Argv.parse(source)
-  if (!argv) return
-  argv.root = true
-  argv.session = session
-  return argv
+function parseCommandSources(ctx: Context, session: Session, source: string) {
+  const parsed = new Set<Argv>()
+
+  // Command probing must still work when another plugin replaces before-parse.
+  try {
+    parsed.add(Argv.parse(source))
+  } catch {}
+
+  try {
+    const argv = ctx.bail?.('before-parse', source, session)
+    if (argv) parsed.add(argv)
+  } catch {}
+
+  return [...parsed].map((argv) => {
+    argv.root = true
+    argv.session = session
+    return argv
+  })
 }
 
 export function markKoishiCommandSession(ctx: Context, session: Session) {
@@ -113,11 +138,12 @@ export function markKoishiCommandSession(ctx: Context, session: Session) {
 
     for (const source of getCommandParseSources(session)) {
       markCommandAppel(session)
-      const argv = parseCommandSource(ctx, session, source)
-      if (!argv || !commander.resolveCommand(argv)) continue
+      for (const argv of parseCommandSources(ctx, session, source)) {
+        if (!commander.resolveCommand(argv)) continue
 
-      ;(session as any).argv = argv
-      return true
+        ;(session as any).argv = argv
+        return true
+      }
     }
 
     restoreStripped(session, originalStripped)
@@ -343,8 +369,9 @@ export class MaibotService extends Service {
       return next()
     }
 
+    const maibotCommand = isMaibotCommandSession(session, this.pluginConfig)
     const route = this.routes.remember(session)
-    if (!shouldForwardSession(session, this.pluginConfig)) {
+    if (!maibotCommand && !shouldForwardSession(session, this.pluginConfig)) {
       this.history.rememberSession(session, route)
       this.log.debug(`skip koishi message: ${describeSession(session)}`)
       return next()
@@ -357,9 +384,11 @@ export class MaibotService extends Service {
 
     try {
       const triggerKind = session.isDirect ? 'direct' : 'group'
-      const trigger = session.isDirect
-        ? this.directTrigger.test(session, route)
-        : this.groupTrigger.test(session, route, isMentioningBot(session))
+      const trigger = maibotCommand
+        ? (session.isDirect ? this.directTrigger.flush(session, route) : this.groupTrigger.flush(session, route))
+        : (session.isDirect
+            ? this.directTrigger.test(session, route)
+            : this.groupTrigger.test(session, route, isMentioningBot(session)))
       if (!trigger.shouldForward) {
         this.history.rememberSession(session, route)
         if (triggerKind === 'direct') {
@@ -394,8 +423,9 @@ export class MaibotService extends Service {
 
       for (let index = 0; index < entries.length; index++) {
         const entry = entries[index]
-        const forceMention = !!trigger.forceMention && index === entries.length - 1
-        await this.forwardSessionToMaim(entry.session, entry.route, forceMention)
+        const commandCandidate = maibotCommand && index === entries.length - 1
+        const forceMention = !commandCandidate && !!trigger.forceMention && index === entries.length - 1
+        await this.forwardSessionToMaim(entry.session, entry.route, forceMention, commandCandidate)
       }
 
       if (this.pluginConfig.messageMode === 'exclusive') return ''
@@ -409,7 +439,12 @@ export class MaibotService extends Service {
     return next()
   }
 
-  private async forwardSessionToMaim(session: Session, route: ReturnType<RouteRegistry['remember']>, forceMention = false) {
+  private async forwardSessionToMaim(
+    session: Session,
+    route: ReturnType<RouteRegistry['remember']>,
+    forceMention = false,
+    maibotCommandCandidate = false,
+  ) {
     const replyTargetId = this.history.getReplyMessageId(session)
     const loadedQuote = await this.loadReplyQuote(session, replyTargetId)
     const replyContext = this.history.resolveReplyContext(session, route, loadedQuote)
@@ -417,6 +452,8 @@ export class MaibotService extends Service {
       resolveImage: (source) => this.resolveImageToBase64(source),
       replyContext,
       forceMention,
+      maibotCommandCandidate,
+      stripLeadingSelfMention: maibotCommandCandidate,
     })
     this.transport.sendMessage(message)
     this.history.rememberSession(session, route)
@@ -426,7 +463,8 @@ export class MaibotService extends Service {
     this.bridge.lastMessageId = message.message_info.message_id
     const replyLog = replyContext ? ` reply=${replyContext.targetMessageId} context=${replyContext.contextCount || 0}` : ''
     const forceLog = forceMention ? ' forced=message-trigger' : ''
-    this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog}${forceLog} ${describeSegment(message.message_segment)}`)
+    const commandLog = maibotCommandCandidate ? ' command-candidate=maibot' : ''
+    this.logMessageDetail(`koishi -> maimai forwarded: route=${route.routeId}${replyLog}${forceLog}${commandLog} ${describeSegment(message.message_segment)}`)
   }
 
   private async loadReplyQuote(session: Session, targetMessageId?: string) {

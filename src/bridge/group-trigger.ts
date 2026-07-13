@@ -49,6 +49,19 @@ export class GroupMessageTrigger {
     return { shouldForward: false, count: entries.length, threshold, key, entries: [] }
   }
 
+  flush(session: Session, route: KoishiRoute): GroupTriggerResult {
+    const threshold = Math.max(1, Math.floor(this.threshold || 1))
+    const entry = { session, route }
+    if (session.isDirect || !route.channelId) {
+      return { shouldForward: true, count: 1, threshold, entries: [entry] }
+    }
+
+    const key = this.createKey(route)
+    const entries = [...this.pending.get(key) || [], entry]
+    this.pending.delete(key)
+    return { shouldForward: true, count: entries.length, threshold, key, entries }
+  }
+
   clear() {
     this.pending.clear()
   }
@@ -87,6 +100,19 @@ export class DirectMessageTrigger {
 
     this.pending.set(key, entries)
     return { shouldForward: false, count: entries.length, threshold, key, entries: [] }
+  }
+
+  flush(session: Session, route: KoishiRoute): GroupTriggerResult {
+    const threshold = Math.max(1, Math.floor(this.threshold || 1))
+    const entry = { session, route }
+    if (!session.isDirect || !route.userId) {
+      return { shouldForward: true, count: 1, threshold, entries: [entry] }
+    }
+
+    const key = this.createKey(route)
+    const entries = [...this.pending.get(key) || [], entry]
+    this.pending.delete(key)
+    return { shouldForward: true, count: entries.length, threshold, key, entries }
   }
 
   clear() {

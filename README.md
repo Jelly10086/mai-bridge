@@ -58,6 +58,8 @@ webuiEnabled: true
 webuiHost: 0.0.0.0
 webuiPort: 8002
 messageMode: coexist
+maibotCommandPrefixes:
+  - /
 groupAutoReplyMode: all
 groupAutoReplyChannelIds: []
 groupMessageTriggerCount: 1
@@ -74,6 +76,7 @@ commandResultMode: source
 - `webuiPublicUrl` 可填写反代或宿主机映射后的 WebUI 地址，用于 Koishi 控制台显示入口。
 - `groupAutoReplyMode` 控制群聊自动回复范围。`all` 表示所有群自动回复，`allowlist` 表示仅名单内群自动回复，`mention-only` 表示所有群只响应 @ 或回复机器人消息。
 - `groupAutoReplyChannelIds` 是允许自动回复的群聊 ID 名单。`groupAutoReplyMode: allowlist` 时填写群号或频道 ID。
+- `maibotCommandPrefixes` 是 MaiBot 命令候选前缀。命中后会立即转发给 MaiBot，命令文本会移除开头的 `@bot`，但仍保留提及标记供群聊命令校验；MaiBot 精确匹配命令后会停止对话链，未命中仍按 `@` 触发回复。默认 `/`，覆盖 `/maimory`、`/pm` 等命令。
 - `groupMessageTriggerCount` 控制群聊累计多少条消息后批量转发并强制触发 maibot 思考。设为 `3` 时，同一群前两条先缓存，第 3 条会连同前两条一起转发。
 - `directMessageTriggerCount` 控制私聊累计多少条消息后批量转发并强制触发 maibot 思考。默认 `1`，表示每条私信都会触发；设为 `3` 时，同一私聊前两条只缓存，第 3 条统一转发并触发回复。
 - `commandResultMode` 控制聊天中执行 `mai.ko.*` 管理指令后的结果发送方式。`source` 发回原群聊/私聊，`admin` 发到管理员私聊，`silent` 不发送结果。

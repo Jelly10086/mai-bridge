@@ -35,6 +35,8 @@ export interface SessionToMaimOptions {
   resolveImage?: (source: string) => Awaitable<string | undefined>
   replyContext?: ReplyContext
   forceMention?: boolean
+  maibotCommandCandidate?: boolean
+  stripLeadingSelfMention?: boolean
 }
 
 export interface ReplyContext {
@@ -260,10 +262,32 @@ function replySegFromElement(element: h, context?: ReplyContext): MaimSeg | unde
 
 function isAtBot(session: Session) {
   return getElements(session).some((element) => {
-    if (element.type !== 'at') return false
-    const id = String(element.attrs.id || element.attrs.userId || element.attrs.qq || '').trim()
-    return !!id && id === String(session.selfId || '').trim()
+    return isSelfAtElement(element, String(session.selfId || '').trim())
   })
+}
+
+function isSelfAtElement(element: h, selfId: string) {
+  if (element.type !== 'at') return false
+  const id = String(element.attrs.id || element.attrs.userId || element.attrs.qq || '').trim()
+  return !!selfId && id === selfId
+}
+
+function stripLeadingSelfMention(elements: h[], selfId: string) {
+  if (!selfId) return elements
+
+  let index = 0
+  while (elements[index]?.type === 'quote' || elements[index]?.type === 'reply') index += 1
+  if (!isSelfAtElement(elements[index], selfId)) return elements
+
+  const result = elements.slice(0, index)
+  const remaining = elements.slice(index + 1)
+  const first = remaining[0]
+  if (first?.type === 'text') {
+    const content = String(first.attrs.content || '').trimStart()
+    if (content) result.push(h('text', { ...first.attrs, content }))
+    remaining.shift()
+  }
+  return [...result, ...remaining]
 }
 
 export function isMentioningBot(session: Session) {
@@ -390,6 +414,9 @@ export async function sessionToMaimMessage(
   const forceMention = !!options.forceMention
   const mentioned = atBot || forceMention
   const replyContext = options.replyContext
+  const elements = options.stripLeadingSelfMention
+    ? stripLeadingSelfMention(getElements(session), String(session.selfId || '').trim())
+    : getElements(session)
   return {
     message_info: {
       platform: PLATFORM,
@@ -412,6 +439,7 @@ export async function sessionToMaimMessage(
         koishi_is_direct: !!session.isDirect,
         koishi_group_trigger_forced: !session.isDirect && forceMention,
         koishi_direct_trigger_forced: !!session.isDirect && forceMention,
+        koishi_maibot_command_candidate: !!options.maibotCommandCandidate,
         at_bot: mentioned,
         is_mentioned: mentioned,
       },
@@ -420,7 +448,7 @@ export async function sessionToMaimMessage(
         accept_format: ['text', 'image', 'emoji'],
       },
     },
-    message_segment: await normalizeSegments(getElements(session), options),
+    message_segment: await normalizeSegments(elements, options),
     message_dim: {
       api_key: apiKey,
       platform: PLATFORM,

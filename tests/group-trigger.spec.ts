@@ -101,6 +101,22 @@ describe('mai.ko group message trigger', () => {
     ], ['msg-1', 'msg-2'])
   })
 
+  it('flushes cached group messages for a MaiBot command without forcing a mention', () => {
+    const trigger = new GroupMessageTrigger(3)
+    const groupRoute = route()
+
+    assert.equal(trigger.test(session({ messageId: 'msg-1' }), groupRoute).shouldForward, false)
+    const result = trigger.flush(session({ messageId: 'command-1' }), groupRoute)
+
+    assert.equal(result.shouldForward, true)
+    assert.equal(result.count, 2)
+    assert.equal(result.forceMention, undefined)
+    assert.deepEqual([
+      result.entries[0].session.messageId,
+      result.entries[1].session.messageId,
+    ], ['msg-1', 'command-1'])
+  })
+
   it('flushes cached direct messages when a private chat reaches the configured message count', () => {
     const trigger = new DirectMessageTrigger(3)
     const firstSession = session({ isDirect: true, channelId: 'private:10001', guildId: '', messageId: 'dm-1' })

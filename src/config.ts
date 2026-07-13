@@ -24,6 +24,7 @@ export interface Config {
   showWebuiToken: boolean
   messageMode: MessageMode
   commandPrefix: string
+  maibotCommandPrefixes: string[]
   groupAutoReplyMode: GroupAutoReplyMode
   groupAutoReplyChannelIds: string[]
   groupMessageTriggerCount: number
@@ -100,6 +101,7 @@ export const Config: Schema<Config> = Schema.intersect([
       Schema.const('command').description('命令：仅命中指令前缀时转发。'),
     ]).default('coexist').description('消息转发模式。'),
     commandPrefix: Schema.string().default('mai.ko').description('command 模式下触发 mai.ko 的文本前缀。'),
+    maibotCommandPrefixes: Schema.array(String).role('table').default(['/']).description('MaiBot 命令候选前缀。命中时立即转发给 MaiBot，命令文本会移除开头 @ 但保留提及标记；MaiBot 精确匹配命令后会拦截，未匹配时仍按 @ 触发回复。'),
     groupAutoReplyMode: Schema.union([
       Schema.const('all').description('所有群聊都允许自动回复。'),
       Schema.const('allowlist').description('仅名单内群聊允许自动回复，其他群聊只响应 @ 或回复机器人消息。'),
